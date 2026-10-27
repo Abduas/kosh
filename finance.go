@@ -218,6 +218,8 @@ var allowedPrefs = map[string]func(any) bool{
 	"hideAmounts": func(v any) bool { _, ok := v.(bool); return ok },
 	"onboarded":   func(v any) bool { _, ok := v.(bool); return ok },
 	"weekStart":   func(v any) bool { f, ok := v.(float64); return ok && (f == 0 || f == 1) },
+	// The account scan & pay uses unless you pick another; 0 means none chosen.
+	"upiAccountId": func(v any) bool { f, ok := v.(float64); return ok && f >= 0 && f == float64(int64(f)) },
 }
 
 func (a *api) updateMe(w http.ResponseWriter, r *http.Request, uid int64) {

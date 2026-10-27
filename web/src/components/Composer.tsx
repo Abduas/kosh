@@ -1,20 +1,21 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Drawer } from 'vaul'
-import { ArrowRight, CalendarDays, Check, ChevronDown, Delete, LayoutGrid, Lock, Plus, ScanLine, Store, Trash2, X } from 'lucide-react'
+import { ArrowRight, CalendarDays, Check, ChevronDown, Delete, LayoutGrid, Lock, Plus, ScanLine, Store, Trash2, TriangleAlert, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { Account, Person, Transaction, TxInput, TxKind } from '../lib/api'
 import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, timeLabel, ymd } from '../lib/format'
 import { haptic, palette } from '../lib/look'
-import { useData, useDeleteTx, useSaveEntity, useSaveTx } from '../lib/queries'
+import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
+import { payableAccounts } from '../lib/pay'
 import { closeComposer, composer, openScanner, type ComposerPreset } from '../lib/store'
 import { payLink, platform, preferredApp, readPending, rememberApp, upiApps, writePending, type UpiApp, type UpiTarget } from '../lib/upi'
 import { isPersonKind, kindMeta } from '../lib/tx'
-import { Avatar, Chip, Glyph, Segmented, cn } from './ui'
+import { Avatar, Chip, Glyph, Segmented, Toggle, cn } from './ui'
 
 type Mode = 'expense' | 'income' | 'transfer' | 'people'
 type PersonKind = 'lend' | 'borrow' | 'collect' | 'repay'
-type Panel = 'keypad' | 'account' | 'toAccount' | 'date' | 'category' | 'person' | 'app'
+type Panel = 'keypad' | 'account' | 'toAccount' | 'date' | 'category' | 'person' | 'app' | 'split'
 
 const personKindHelp: Record<PersonKind, string> = {
   lend: 'You gave them money',
@@ -95,6 +96,12 @@ function prettyExpr(expr: string): string {
     .join('')
 }
 
+/** Splits paise equally; the first share takes the leftover paise. */
+export function splitEqually(total: number, parts: number): number[] {
+  const base = Math.floor(total / parts)
+  return Array.from({ length: parts }, (_, i) => base + (i === 0 ? total - base * parts : 0))
+}
+
 // ---- Sheet ----
 
 export function Composer() {
@@ -125,6 +132,8 @@ function lastAccountId(): number | null {
 function ComposerBody({ editing, preset }: { editing: Transaction | null; preset: ComposerPreset }) {
   const d = useData()
   const save = useSaveTx()
+  const saveMany = useSaveTxs()
+  const updateMe = useUpdateMe()
   const del = useDeleteTx()
   const savePerson = useSaveEntity<Person>('people')
 
@@ -134,8 +143,10 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const amountLocked = upi?.amount != null
   const [app, setApp] = useState(preferredApp)
   const accounts = d.activeAccounts
+  // A UPI payment never comes out of cash.
+  const pickable = upi && payableAccounts(accounts).length > 0 ? payableAccounts(accounts) : accounts
   const defaultAccount =
-    editing?.accountId ?? preset.accountId ?? (accounts.find((a) => a.id === lastAccountId()) ?? accounts[0])?.id ?? 0
+    editing?.accountId ?? preset.accountId ?? (pickable.find((a) => a.id === lastAccountId()) ?? pickable[0])?.id ?? 0
 
   const [mode, setMode] = useState<Mode>(isPersonKind(initialKind) ? 'people' : (initialKind as Mode))
   const [personKind, setPersonKind] = useState<PersonKind>(isPersonKind(initialKind) ? (initialKind as PersonKind) : 'lend')
@@ -152,10 +163,29 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const [panel, setPanel] = useState<Panel>('keypad')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [shake, setShake] = useState<string | null>(null)
+  // Splitting a bill: your share is the expense, each friend's share a loan to them.
+  const [splitWith, setSplitWith] = useState<number[]>([])
+  const [includeMe, setIncludeMe] = useState(true)
 
   const kind: TxKind = mode === 'people' ? personKind : mode
   const result = evaluate(expr)
   const hasOp = /[+−×÷]/.test(expr.replace(/[+−×÷]$/, ''))
+  const total = Math.round((result ?? 0) * 100)
+  const canSplit = mode === 'expense' && !editing
+  const splitting = canSplit && splitWith.length > 0
+  const shares = splitting ? splitEqually(total, splitWith.length + (includeMe ? 1 : 0)) : [total]
+  const myShare = splitting ? (includeMe ? shares[0] : 0) : total
+
+  // How this expense sits against the month's budget for its category (or overall).
+  const budgets = useBudgets(occurredAt.slice(0, 7))
+  const budgetNote = (() => {
+    if (mode !== 'expense' || editing || !budgets.data) return null
+    const b = budgets.data.find((x) => x.categoryId === categoryId && categoryId != null) ?? budgets.data.find((x) => x.categoryId === null)
+    if (!b) return null
+    const name = b.categoryId ? (d.categoriesById.get(b.categoryId)?.name ?? 'this') : 'your monthly'
+    const left = b.amount - b.spent - myShare
+    return left >= 0 ? { text: `${money(left)} left in ${name} budget`, over: false } : { text: `${money(-left)} over ${name} budget`, over: true }
+  })()
 
   const categories = useMemo(() => {
     if (mode !== 'expense' && mode !== 'income') return []
@@ -226,16 +256,68 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
     }
   }
 
+  /** The transaction to save, or one per person when splitting. */
+  const buildItems = (): TxInput[] | null => {
+    const input = buildInput()
+    if (!input || !splitting) return input && [input]
+    const items: TxInput[] = []
+    const parts = [...shares]
+    if (includeMe) items.push({ ...input, amount: parts.shift()! })
+    const forWhat = input.note || d.categoriesById.get(categoryId ?? 0)?.name || 'a bill'
+    splitWith.forEach((pid, i) =>
+      items.push({
+        kind: 'lend',
+        amount: parts[i],
+        accountId,
+        toAccountId: null,
+        categoryId: null,
+        personId: pid,
+        note: `Split: ${forWhat}`.slice(0, 280),
+        occurredAt,
+        // The payee stays on one entry so Kosh still remembers this UPI ID.
+        ...(upi ? { source: 'upi-scan' as const, payee: !includeMe && i === 0 ? upi.vpa : '' } : {}),
+      }),
+    )
+    return items
+  }
+
   const rememberAccount = () => {
     try {
       localStorage.setItem('kosh:lastAccount', String(accountId))
+      if (upi) localStorage.setItem('kosh:lastUpiAccount', String(accountId))
     } catch {}
+  }
+
+  // Picking another account for a scan offers to make it the default.
+  const [offerDefault, setOfferDefault] = useState(false)
+  const pickAccount = (id: number) => {
+    setAccountId(id)
+    if (id === toAccountId) setToAccountId(null)
+    setPanel('keypad')
+    setOfferDefault(!!upi && id !== d.user.prefs.upiAccountId)
+  }
+  const makeDefault = () => {
+    const a = d.accountsById.get(accountId)
+    haptic(10)
+    updateMe.mutate({ prefs: { upiAccountId: accountId } }, { onSuccess: () => { setOfferDefault(false); toast.success(`Scans now pay from ${a?.name ?? 'this account'}`) } })
   }
 
   const submit = () => {
     if (resolveSum()) return
-    const input = buildInput()
-    if (!input) return
+    const items = buildItems()
+    if (!items) return
+    if (items.length > 1) {
+      saveMany.mutate(items, {
+        onSuccess: () => {
+          haptic(15)
+          rememberAccount()
+          toast.success(`Split ${money(total)} with ${splitWith.length} ${splitWith.length === 1 ? 'person' : 'people'}`)
+          closeComposer()
+        },
+      })
+      return
+    }
+    const input = items[0]
     save.mutate(
       { id: editing?.id, input },
       {
@@ -252,17 +334,20 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   // Hands the payment to a UPI app. It's saved when you come back and say it went through.
   const pay = () => {
     if (!upi || resolveSum()) return
-    const input = buildInput()
-    if (!input) return
+    const items = buildItems()
+    if (!items) return
     if (platform === 'other') {
-      toast('Open Kosh on your phone to pay with a UPI app. Or use "Just save it" below.')
+      toast('Open Kosh on your phone to pay with a UPI app, or tap "Already paid".')
       return
     }
-    const link = payLink(upi, input.amount, app)
+    const link = payLink(upi, total, app)
     const startedAt = Date.now()
     writePending({
-      input: { ...input, kind: input.kind as 'expense' | 'lend' | 'repay', toAccountId: null, source: 'upi-scan', payee: upi.vpa },
+      items,
+      total,
+      payee: upi.vpa,
       payeeName: upi.name,
+      splitWith: splitWith.map((id) => d.peopleById.get(id)?.name ?? ''),
       link,
       appName: app.name,
       startedAt,
@@ -376,7 +461,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {upi && <PayeeCard upi={upi} link={payLink(upi, Math.round((result ?? 0) * 100), app)} onAlreadyPaid={submit} saving={save.isPending} />}
+        {upi && <PayeeCard upi={upi} recent={preset.recent} link={payLink(upi, total, app)} onAlreadyPaid={submit} saving={save.isPending || saveMany.isPending} />}
 
         {/* Amount */}
         <motion.div
@@ -385,12 +470,14 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
           className={cn('flex flex-col items-center px-6 pb-1', upi ? 'pt-2' : 'pt-5')}
         >
           <div className="flex h-5 items-center gap-1 text-[13px] font-medium text-ink-3 tnum">
-            {amountLocked ? (
+            {hasOp ? (
+              prettyExpr(expr)
+            ) : amountLocked ? (
               <>
                 <Lock className="size-3" /> Amount set by the QR
               </>
-            ) : hasOp ? (
-              prettyExpr(expr)
+            ) : budgetNote && total > 0 ? (
+              <span className={budgetNote.over ? 'font-semibold text-neg' : ''}>{budgetNote.text}</span>
             ) : (
               ''
             )}
@@ -417,6 +504,11 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             {account ? <Glyph icon={account.icon} color={account.color} size={22} /> : null}
             <span className="max-w-[120px] truncate">{account?.name ?? 'Account'}</span>
           </PickerChip>
+          {offerDefault && (
+            <button onClick={makeDefault} disabled={updateMe.isPending} className="press h-9 shrink-0 rounded-full bg-accent/12 px-3 text-[13px] font-semibold text-accent disabled:opacity-60">
+              Make default
+            </button>
+          )}
           {upi && platform === 'ios' && (
             <PickerChip active={panel === 'app'} onClick={() => setPanel(panel === 'app' ? 'keypad' : 'app')}>
               <AppDot app={app} />
@@ -443,6 +535,12 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             <span>{dayLabel(occurredAt.slice(0, 10))}</span>
             <span className="text-ink-3">{timeLabel(occurredAt)}</span>
           </PickerChip>
+          {canSplit && (
+            <PickerChip active={panel === 'split' || splitting} onClick={() => setPanel(panel === 'split' ? 'keypad' : 'split')}>
+              <Users className="size-4" />
+              <span>{splitting ? `Split · ${splitWith.length + (includeMe ? 1 : 0)}` : 'Split'}</span>
+            </PickerChip>
+          )}
         </div>
 
         {/* One-tap category or person strip */}
@@ -502,10 +600,28 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
           >
             {panel === 'keypad' && <Keypad onKey={press} onClear={() => setExpr('')} />}
             {panel === 'account' && (
-              <AccountPicker accounts={accounts} selected={accountId} onPick={(id) => { setAccountId(id); if (id === toAccountId) setToAccountId(null); setPanel('keypad') }} />
+              <AccountPicker accounts={pickable} selected={accountId} onPick={pickAccount} />
             )}
             {panel === 'toAccount' && (
               <AccountPicker accounts={accounts.filter((a) => a.id !== accountId)} selected={toAccountId ?? 0} onPick={(id) => { setToAccountId(id); setPanel('keypad') }} />
+            )}
+            {panel === 'split' && (
+              <SplitPicker
+                people={people}
+                selected={splitWith}
+                includeMe={includeMe}
+                shares={total > 0 ? shares : null}
+                creating={savePerson.isPending}
+                onToggle={(id) => { haptic(6); setSplitWith((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])) }}
+                onIncludeMe={setIncludeMe}
+                onCreate={(name) =>
+                  savePerson.mutate(
+                    { body: { name, color: palette[Math.floor(Math.random() * palette.length)] } },
+                    { onSuccess: (p) => setSplitWith((l) => [...l, p.id]) },
+                  )
+                }
+                onDone={() => setPanel('keypad')}
+              />
             )}
             {panel === 'app' && (
               <div className="grid h-full grid-cols-2 content-start gap-2 overflow-y-auto pb-2">
@@ -571,7 +687,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
         ) : (
         <button
           onClick={submit}
-          disabled={save.isPending}
+          disabled={save.isPending || saveMany.isPending}
           className="press flex h-14 w-full items-center justify-center gap-2 rounded-[20px] bg-accent text-[16px] font-semibold text-white shadow-[0_12px_30px_-12px_var(--accent)] disabled:opacity-60"
         >
           {hasOp ? (
@@ -579,7 +695,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
           ) : (
             <>
               <Check className="size-5" strokeWidth={2.6} />
-              {editing ? 'Save changes' : `Save ${kindMeta[kind].label.toLowerCase()}`}
+              {editing ? 'Save changes' : splitting ? `Save and split ${splitWith.length + (includeMe ? 1 : 0)} ways` : `Save ${kindMeta[kind].label.toLowerCase()}`}
             </>
           )}
         </button>
@@ -597,8 +713,34 @@ function AppDot({ app, size = 20 }: { app: UpiApp; size?: number }) {
   )
 }
 
-function PayeeCard({ upi, link, onAlreadyPaid, saving }: { upi: UpiTarget; link: string; onAlreadyPaid: () => void; saving: boolean }) {
+function minutesAgo(utc: string): number {
+  return Math.max(0, Math.round((Date.now() - Date.parse(utc)) / 60000))
+}
+
+function agoText(min: number): string {
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
+  if (min < 60 * 24) return `${Math.round(min / 60)} h ago`
+  return `${Math.round(min / 1440)} days ago`
+}
+
+function PayeeCard({
+  upi,
+  recent,
+  link,
+  onAlreadyPaid,
+  saving,
+}: {
+  upi: UpiTarget
+  recent?: ComposerPreset['recent']
+  link: string
+  onAlreadyPaid: () => void
+  saving: boolean
+}) {
   const [details, setDetails] = useState(false)
+  // Paying twice is the classic UPI mistake when an app shows "pending".
+  const min = recent ? minutesAgo(recent.savedAt) : Infinity
+  const warn = recent && ((recent.status === 'pending' && min < 60 * 24 * 5) || min < 30) ? recent : null
   return (
     <div className="mx-4 mt-3 rounded-[20px] bg-surface-2 px-3 py-2.5">
       <div className="flex items-center gap-3">
@@ -621,6 +763,14 @@ function PayeeCard({ upi, link, onAlreadyPaid, saving }: { upi: UpiTarget; link:
           Already paid
         </button>
       </div>
+      {warn && (
+        <p className="mt-2 flex items-start gap-2 rounded-xl bg-warn/12 px-2.5 py-2 text-[12px] font-medium text-warn">
+          <TriangleAlert className="mt-px size-3.5 shrink-0" />
+          {warn.status === 'pending'
+            ? `Your ${money(warn.amount)} payment here ${agoText(min)} is still pending. If the money left your account, don't pay again: it usually comes back by the next working day.`
+            : `You paid ${money(warn.amount)} here ${agoText(min)}. Make sure you're not paying twice.`}
+        </p>
+      )}
       {details && (
         <div className="mt-2 space-y-1.5 border-t border-line pt-2 text-[11px] text-ink-3">
           <p className="break-all"><span className="font-semibold text-ink-2">QR: </span>{upi.raw}</p>
@@ -745,6 +895,93 @@ function DatePicker({ value, onChange, onDone }: { value: string; onChange: (v: 
       <button onClick={onDone} className="press mt-auto mb-1 h-12 rounded-2xl bg-surface-2 text-[15px] font-semibold">
         Done
       </button>
+    </div>
+  )
+}
+
+function SplitPicker({
+  people,
+  selected,
+  includeMe,
+  shares,
+  creating,
+  onToggle,
+  onIncludeMe,
+  onCreate,
+  onDone,
+}: {
+  people: Person[]
+  selected: number[]
+  includeMe: boolean
+  shares: number[] | null
+  creating: boolean
+  onToggle: (id: number) => void
+  onIncludeMe: (v: boolean) => void
+  onCreate: (name: string) => void
+  onDone: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const list = people.filter((p) => p.name.toLowerCase().includes(q))
+  const exact = people.some((p) => p.name.toLowerCase() === q)
+  const each = shares && selected.length > 0 ? shares[shares.length - 1] : null
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <div className="flex gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Split with…"
+          maxLength={50}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && q && !exact) {
+              e.stopPropagation()
+              onCreate(query.trim())
+              setQuery('')
+            }
+          }}
+          className="h-11 min-w-0 flex-1 rounded-2xl bg-surface-2 px-4 text-[15px] outline-none placeholder:text-ink-3"
+        />
+        {q && !exact ? (
+          <button disabled={creating} onClick={() => { onCreate(query.trim()); setQuery('') }} className="press flex h-11 shrink-0 items-center gap-1 rounded-2xl bg-accent px-4 text-[14px] font-semibold text-white disabled:opacity-60">
+            <Plus className="size-4" /> Add
+          </button>
+        ) : (
+          <button onClick={onDone} className="press h-11 shrink-0 rounded-2xl bg-ink px-4 text-[14px] font-semibold text-bg">
+            Done
+          </button>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3 px-1">
+        <p className="text-[13px] text-ink-2">
+          {each != null ? (
+            <>
+              <span className="font-semibold text-ink tnum">{money(each)}</span> each
+              {includeMe ? ' · your share is the expense' : ' · all of it is lent'}
+            </>
+          ) : (
+            'Pick who shares this bill'
+          )}
+        </p>
+        <span className="flex shrink-0 items-center gap-2 text-[12px] font-semibold text-ink-3">
+          Include me <Toggle checked={includeMe} onChange={onIncludeMe} label="Include me in the split" />
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {list.map((p) => {
+          const on = selected.includes(p.id)
+          return (
+            <button key={p.id} onClick={() => onToggle(p.id)} className={cn('press flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left', on && 'bg-surface-2')}>
+              <Avatar name={p.name} color={p.color} size={34} />
+              <span className="flex-1 truncate text-[15px] font-medium">{p.name}</span>
+              <span className={cn('grid size-6 place-items-center rounded-full border-2', on ? 'border-accent bg-accent text-white' : 'border-ink-3/40')}>
+                {on && <Check className="size-3.5" strokeWidth={3} />}
+              </span>
+            </button>
+          )
+        })}
+        {list.length === 0 && !q && <p className="py-6 text-center text-[14px] text-ink-3">Type a name to add someone.</p>}
+      </div>
     </div>
   )
 }

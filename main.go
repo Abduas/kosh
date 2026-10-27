@@ -94,6 +94,7 @@ func newServer(db *sql.DB) http.Handler {
 
 	mux.HandleFunc("GET /api/transactions", a.authed(a.listTransactions))
 	mux.HandleFunc("POST /api/transactions", a.authed(a.createTransaction))
+	mux.HandleFunc("POST /api/transactions/batch", a.authed(a.createTransactions))
 	mux.HandleFunc("PATCH /api/transactions/{id}", a.authed(a.updateTransaction))
 	mux.HandleFunc("DELETE /api/transactions/{id}", a.authed(a.deleteTransaction))
 

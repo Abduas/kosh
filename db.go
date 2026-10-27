@@ -132,6 +132,11 @@ var migrations = []string{
 	// transaction to a payee is how Kosh remembers its category, person and account.
 	`ALTER TABLE transactions ADD COLUMN payee TEXT NOT NULL DEFAULT '';
 	CREATE INDEX transactions_payee ON transactions(user_id, payee, occurred_at DESC) WHERE payee != '';`,
+
+	// A pending UPI payment: the money left your account but the payment app
+	// didn't confirm it. It counts in balances until you mark it done or refunded.
+	`ALTER TABLE transactions ADD COLUMN status TEXT NOT NULL DEFAULT 'done' CHECK (status IN ('done', 'pending'));
+	CREATE INDEX transactions_pending ON transactions(user_id) WHERE status = 'pending';`,
 }
 
 func migrate(db *sql.DB) error {

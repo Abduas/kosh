@@ -1,14 +1,14 @@
-import { Check, RotateCcw } from 'lucide-react'
+import { Check, Clock, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { money } from '../lib/format'
 import { haptic } from '../lib/look'
-import { useData, useSaveTx } from '../lib/queries'
+import { useData, useSaveTxs } from '../lib/queries'
 import { closeComposer } from '../lib/store'
-import { readPending, writePending, type PendingPayment } from '../lib/upi'
 import { kindMeta } from '../lib/tx'
-import { Avatar, Button, Glyph } from './ui'
+import { readPending, writePending, type PendingPayment } from '../lib/upi'
 import { Sheet } from './Sheet'
+import { Avatar, Button, Glyph } from './ui'
 
 /**
  * After Kosh opens a UPI app, the page goes to the background. When it comes
@@ -17,7 +17,7 @@ import { Sheet } from './Sheet'
  */
 export function PaymentCheck() {
   const d = useData()
-  const save = useSaveTx()
+  const save = useSaveTxs()
   // pending stays set while the sheet animates closed.
   const [pending, setPending] = useState<PendingPayment | null>(null)
   const [open, setOpen] = useState(false)
@@ -51,19 +51,21 @@ export function PaymentCheck() {
 
   if (!pending) return null
 
-  const { input } = pending
-  const account = d.accountsById.get(input.accountId)
-  const category = input.categoryId ? d.categoriesById.get(input.categoryId) : undefined
-  const person = input.personId ? d.peopleById.get(input.personId) : undefined
+  const first = pending.items[0]
+  const account = d.accountsById.get(first.accountId)
+  const category = first.categoryId ? d.categoriesById.get(first.categoryId) : undefined
+  const person = first.personId ? d.peopleById.get(first.personId) : undefined
+  const split = pending.splitWith.filter(Boolean)
 
-  const yes = () => {
+  const record = (status: 'done' | 'pending') => {
     save.mutate(
-      { input },
+      pending.items.map((i) => ({ ...i, status })),
       {
         onSuccess: () => {
           haptic(15)
           writePending(null)
-          toast.success(`Paid ${money(input.amount)} to ${pending.payeeName}`)
+          if (status === 'done') toast.success(`Paid ${money(pending.total)} to ${pending.payeeName}`)
+          else toast('Saved as pending. Mark it done or refunded from Home once you know.')
         },
       },
     )
@@ -79,36 +81,51 @@ export function PaymentCheck() {
     window.location.href = pending.link
   }
 
+  const detail =
+    first.kind === 'expense'
+      ? [category ? `${category.icon} ${category.name}` : 'No category', split.length > 0 && `split with ${split.join(', ')}`].filter(Boolean).join(' · ')
+      : `${kindMeta[first.kind].label}${person ? ` · ${person.name}` : ''}`
+
   return (
-    <Sheet open={open} onOpenChange={() => {}} dismissible={false} title="Did the payment go through?" description={`Kosh opened ${pending.appName}. Check it, then tell Kosh what happened.`}>
+    <Sheet open={open} onOpenChange={() => {}} dismissible={false} title="Did the payment go through?" description={`Kosh opened ${pending.appName}. Check it there, then tell Kosh what happened.`}>
       <div className="flex items-center gap-3 rounded-[22px] bg-surface-2 p-4">
-        {person ? <Avatar name={person.name} color={person.color} size={46} /> : category ? <Glyph icon={category.icon} color={category.color} size={46} /> : <Avatar name={pending.payeeName} color="#64748B" size={46} />}
+        {person ? (
+          <Avatar name={person.name} color={person.color} size={46} />
+        ) : category ? (
+          <Glyph icon={category.icon} color={category.color} size={46} />
+        ) : (
+          <Avatar name={pending.payeeName} color="#64748B" size={46} />
+        )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-[16px] font-semibold">{pending.payeeName}</p>
           <p className="truncate text-[13px] text-ink-3">
-            {input.payee}
+            {pending.payee}
             {account && ` · from ${account.name}`}
           </p>
-          <p className="truncate text-[12px] font-medium text-ink-3">
-            {input.kind === 'expense' ? (category ? `${category.icon} ${category.name}` : 'No category') : `${kindMeta[input.kind].label}${person ? ` · ${person.name}` : ''}`}
-          </p>
+          <p className="truncate text-[12px] font-medium text-ink-3">{detail}</p>
         </div>
-        <p className="text-[22px] font-bold tracking-[-0.03em] tnum">{money(input.amount)}</p>
+        <p className="text-[22px] font-bold tracking-[-0.03em] tnum">{money(pending.total)}</p>
       </div>
 
       <div className="mt-5 grid gap-2">
-        <Button size="lg" loading={save.isPending} icon={<Check className="size-5" strokeWidth={2.6} />} onClick={yes}>
+        <Button size="lg" loading={save.isPending} icon={<Check className="size-5" strokeWidth={2.6} />} onClick={() => record('done')}>
           Yes, it's paid
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="secondary" onClick={no}>
+          <Button variant="secondary" disabled={save.isPending} icon={<Clock className="size-4 text-warn" />} onClick={() => record('pending')}>
+            It's pending
+          </Button>
+          <Button variant="secondary" disabled={save.isPending} onClick={no}>
             No, it failed
           </Button>
-          <Button variant="secondary" icon={<RotateCcw className="size-4" />} onClick={retry}>
-            Try again
-          </Button>
         </div>
+        <Button variant="ghost" size="sm" icon={<RotateCcw className="size-4" />} onClick={retry}>
+          Didn't get to pay? Open {pending.appName} again
+        </Button>
       </div>
+      <p className="mt-3 text-center text-[12px] text-ink-3">
+        Pending means the money left your account but the app didn't confirm. Don't pay again: it usually completes or comes back by the next working day.
+      </p>
     </Sheet>
   )
 }

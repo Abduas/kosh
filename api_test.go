@@ -364,3 +364,78 @@ func TestPayeeMemory(t *testing.T) {
 	other := newClient(t, srv)
 	other.do("GET", "/api/payees?vpa=shop@okaxis", nil, 401, nil)
 }
+
+func TestSplitPendingAndDefaultAccount(t *testing.T) {
+	srv := newTestServer(t)
+	me := newClient(t, srv)
+	me.do("POST", "/api/auth/setup", map[string]string{"name": "A", "username": "splitter", "password": "password123"}, 201, nil)
+	var bank, friend idResp
+	me.do("POST", "/api/accounts", map[string]any{"name": "HDFC", "kind": "bank", "color": "#004C8F", "icon": "🏦"}, 201, &bank)
+	me.do("POST", "/api/people", map[string]any{"name": "Rahul", "color": "#F97316"}, 201, &friend)
+
+	// Default scan account is a whole number, 0 to clear.
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"upiAccountId": bank.ID}}, 200, nil)
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"upiAccountId": 1.5}}, 400, nil)
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"upiAccountId": -1}}, 400, nil)
+
+	// A ₹900 dinner split three ways, paid by UPI and still pending.
+	at := "2026-10-27T20:00"
+	items := []map[string]any{
+		{"kind": "expense", "amount": 30000, "accountId": bank.ID, "occurredAt": at, "source": "upi-scan", "payee": "cafe@ybl", "status": "pending", "note": "Dinner"},
+		{"kind": "lend", "amount": 30000, "accountId": bank.ID, "personId": friend.ID, "occurredAt": at, "source": "upi-scan", "status": "pending", "note": "Dinner"},
+		{"kind": "lend", "amount": 30000, "accountId": bank.ID, "personId": friend.ID, "occurredAt": at, "source": "upi-scan", "status": "pending", "note": "Dinner"},
+	}
+	var batch struct {
+		Items []transaction `json:"items"`
+	}
+	me.do("POST", "/api/transactions/batch", map[string]any{"items": items}, 201, &batch)
+	if len(batch.Items) != 3 || batch.Items[0].Status != "pending" || batch.Items[1].PersonID == nil {
+		t.Fatalf("batch = %+v", batch.Items)
+	}
+
+	// All or nothing: one bad item saves none.
+	bad := []map[string]any{items[0], {"kind": "lend", "amount": 100, "accountId": bank.ID, "occurredAt": at}}
+	me.do("POST", "/api/transactions/batch", map[string]any{"items": bad}, 400, nil)
+	me.do("POST", "/api/transactions/batch", map[string]any{"items": []any{}}, 400, nil)
+
+	var page struct {
+		Items []transaction `json:"items"`
+	}
+	me.do("GET", "/api/transactions", nil, 200, &page)
+	if len(page.Items) != 3 {
+		t.Fatalf("after failed batch: %d transactions, want 3", len(page.Items))
+	}
+
+	// Pending payments count in balances and can be listed.
+	var boot struct {
+		Accounts []account `json:"accounts"`
+		People   []person  `json:"people"`
+	}
+	me.do("GET", "/api/bootstrap", nil, 200, &boot)
+	for _, a := range boot.Accounts {
+		if a.ID == bank.ID && a.Balance != -90000 {
+			t.Fatalf("bank balance = %d, want -90000", a.Balance)
+		}
+	}
+	me.do("GET", "/api/transactions?status=pending", nil, 200, &page)
+	if len(page.Items) != 3 {
+		t.Fatalf("pending = %d, want 3", len(page.Items))
+	}
+
+	// Payee memory reports the pending payment, to warn before paying twice.
+	var mem payeeMemory
+	me.do("GET", "/api/payees?vpa=cafe@ybl", nil, 200, &mem)
+	if mem.LastStatus != "pending" || mem.LastSavedAt == "" || mem.LastAmount != 90000 {
+		t.Fatalf("memory = %+v", mem)
+	}
+
+	// It went through: mark each done. Bad statuses are refused.
+	me.do("PATCH", fmt.Sprintf("/api/transactions/%d", batch.Items[0].ID), map[string]any{"status": "refunded"}, 400, nil)
+	for _, it := range batch.Items {
+		me.do("PATCH", fmt.Sprintf("/api/transactions/%d", it.ID), map[string]any{"status": "done", "personId": it.PersonID, "categoryId": it.CategoryID}, 200, nil)
+	}
+	me.do("GET", "/api/transactions?status=pending", nil, 200, &page)
+	if len(page.Items) != 0 {
+		t.Fatalf("pending after marking done = %d", len(page.Items))
+	}
+}

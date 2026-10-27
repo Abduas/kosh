@@ -1,4 +1,4 @@
-import { api, type Bootstrap, type PayeeMemory } from './api'
+import { api, type Account, type Bootstrap, type PayeeMemory } from './api'
 import { queryClient } from './queries'
 import { openComposer, type ComposerPreset } from './store'
 import { categoryNameForMcc, nameMatches, type UpiTarget } from './upi'
@@ -18,7 +18,6 @@ export async function startPayment(target: UpiTarget) {
   }
 
   const preset: ComposerPreset = { upi: target, amount: target.amount ?? undefined, kind: 'expense', note: target.name }
-  const activeAccount = (id?: number) => (id && boot?.accounts.some((a) => a.id === id && !a.archived) ? id : undefined)
   const activePerson = (id?: number | null) => (id && boot?.people.some((p) => p.id === id && !p.archived) ? id : undefined)
 
   if (memory.known) {
@@ -29,8 +28,8 @@ export async function startPayment(target: UpiTarget) {
       preset.personId = personId
       preset.categoryId = kind === 'expense' ? (memory.categoryId ?? undefined) : undefined
     }
-    preset.accountId = activeAccount(memory.accountId)
     if (memory.note) preset.note = memory.note
+    if (memory.lastSavedAt && memory.lastAmount) preset.recent = { amount: memory.lastAmount, savedAt: memory.lastSavedAt, status: memory.lastStatus ?? 'done' }
   } else if (boot) {
     const person = target.merchant ? undefined : boot.people.find((p) => !p.archived && nameMatches(p.name, target.name))
     if (person) {
@@ -44,5 +43,29 @@ export async function startPayment(target: UpiTarget) {
       preset.categoryId = category?.id
     }
   }
+  preset.accountId = boot ? upiAccount(boot, memory.accountId)?.id : undefined
   openComposer(preset)
+}
+
+/** Accounts a UPI payment can come from: anything but cash. */
+export function payableAccounts(accounts: Account[]): Account[] {
+  return accounts.filter((a) => !a.archived && a.kind !== 'cash')
+}
+
+export function lastUpiAccountId(): number | null {
+  try {
+    return Number(localStorage.getItem('kosh:lastUpiAccount')) || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The account a scan pays from: your default, else the one used for this
+ * payee last time, else the one you paid from last, else your first bank.
+ */
+export function upiAccount(boot: Bootstrap, rememberedId?: number): Account | undefined {
+  const list = payableAccounts(boot.accounts)
+  const find = (id?: number | null) => (id ? list.find((a) => a.id === id) : undefined)
+  return find(boot.user.prefs.upiAccountId) ?? find(rememberedId) ?? find(lastUpiAccountId()) ?? list.find((a) => a.kind === 'bank') ?? list[0]
 }

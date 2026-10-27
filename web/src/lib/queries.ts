@@ -154,6 +154,7 @@ export function txInput(t: Transaction): TxInput {
     occurredAt: t.occurredAt,
     source: t.source === 'upi-scan' ? 'upi-scan' : 'manual',
     payee: t.payee,
+    status: t.status,
   }
 }
 
@@ -163,6 +164,20 @@ export function useSaveTx() {
       id ? api<Transaction>('PATCH', `/api/transactions/${id}`, input) : api<Transaction>('POST', '/api/transactions', input),
     onSuccess: invalidateMoney,
   })
+}
+
+/** Saves one transaction, or several at once (a split bill) so they're all saved or none. */
+export function saveTransactions(items: TxInput[]): Promise<unknown> {
+  return items.length === 1 ? api('POST', '/api/transactions', items[0]) : api('POST', '/api/transactions/batch', { items })
+}
+
+export function useSaveTxs() {
+  return useMutation({ mutationFn: saveTransactions, onSuccess: invalidateMoney })
+}
+
+/** Payments the UPI app didn't confirm yet. */
+export function usePendingTxs() {
+  return useQuery({ queryKey: ['tx', 'pending'], queryFn: () => api<TxPage>('GET', '/api/transactions?status=pending&limit=50') })
 }
 
 /** Deletes a transaction, with an Undo button in the toast. */

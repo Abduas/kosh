@@ -109,7 +109,10 @@ export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: 
         <TxIcon t={t} d={d} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] font-medium tracking-tight">{title}</div>
-          <div className="truncate text-[13px] text-ink-3">{showDate ? `${dayLabel(t.occurredAt.slice(0, 10))} · ${subtitle}` : subtitle}</div>
+          <div className="truncate text-[13px] text-ink-3">
+            {t.status === 'pending' && <span className="mr-1 rounded-md bg-warn/15 px-1.5 py-px text-[11px] font-semibold text-warn">Pending</span>}
+            {showDate ? `${dayLabel(t.occurredAt.slice(0, 10))} · ${subtitle}` : subtitle}
+          </div>
         </div>
         <div className="flex flex-col items-end">
           <TxAmount t={t} accountId={accountId} />

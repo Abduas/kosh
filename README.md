@@ -10,6 +10,12 @@ where your money goes. One small Go binary, your data in one SQLite file.
 - **Scan & pay:** scan any UPI QR (or pick a photo of one, or type a UPI ID). Kosh fills in who it's for,
   the amount, category and person, opens GPay, PhonePe, Paytm, BHIM or CRED with the payment ready, and asks
   "did it go through?" when you come back. It remembers each UPI ID, so the next scan is one tap.
+  Scans pay from your default bank account (never cash), and super.money is supported too.
+- **Pending payments:** if the UPI app says "pending", save it as pending. It stays on Home until you mark it
+  as gone through or refunded, and Kosh warns you before you pay the same place again, so you don't pay twice.
+- **Split a bill:** pay the whole bill, split it equally with friends. Your share is your expense; each
+  friend's share is added to what they owe you.
+- **Budget check while you pay:** see what's left in that category's budget before you tap Pay.
 - **Fast entry:** a keypad that does sums (`450+120`), one-tap categories, and keyboard input on desktop.
 - **People:** lend, borrow, partial repayments, a running balance per person, one-tap "settle up",
   and WhatsApp reminders with your UPI ID.

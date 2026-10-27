@@ -8,7 +8,8 @@ import { accents } from '../lib/look'
 import { clearLocalData, queryClient, useData, useUpdateMe } from '../lib/queries'
 import { navigate } from '../lib/router'
 import { privacy, togglePrivacy } from '../lib/store'
-import { launchScanEnabled, setLaunchScan } from '../lib/upi'
+import { payableAccounts } from '../lib/pay'
+import { launchScanEnabled, platform, preferredApp, rememberApp, setLaunchScan, upiApps } from '../lib/upi'
 
 const currencies = [
   { code: 'INR', label: '₹ Indian Rupee' },
@@ -32,6 +33,8 @@ export function Settings() {
   const [name, setName] = useState(d.user.name)
   const [upi, setUpi] = useState(prefs.upiId ?? '')
   const [launchScan, setLaunchScanState] = useState(launchScanEnabled)
+  const [upiApp, setUpiApp] = useState(preferredApp)
+  const payFrom = payableAccounts(d.accounts)
   const [pwOpen, setPwOpen] = useState(false)
   const [install, setInstall] = useState<InstallEvent | null>(null)
   const standalone = matchMedia('(display-mode: standalone)').matches
@@ -140,6 +143,53 @@ export function Settings() {
           </div>
           <Toggle checked={hidden} onChange={togglePrivacy} label="Hide amounts" />
         </div>
+      </div>
+
+      <SectionTitle title="Scan & pay" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium">Pay from</p>
+            <p className="text-[12px] text-ink-3">The bank account scans use. Never cash.</p>
+          </div>
+          <select
+            value={payFrom.some((a) => a.id === prefs.upiAccountId) ? prefs.upiAccountId : 0}
+            onChange={(e) => setPref({ upiAccountId: Number(e.target.value) })}
+            className="h-9 max-w-[180px] rounded-xl bg-surface-2 px-3 text-[14px] font-semibold outline-none"
+            aria-label="Pay from"
+          >
+            <option value={0}>Automatic</option>
+            {payFrom.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {platform === 'ios' && (
+          <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[15px] font-medium">Payment app</p>
+              <p className="text-[12px] text-ink-3">Opened when you tap Pay. You can switch per payment.</p>
+            </div>
+            <select
+              value={upiApp.id}
+              onChange={(e) => {
+                const a = upiApps.find((x) => x.id === e.target.value)!
+                rememberApp(a)
+                setUpiApp(a)
+              }}
+              className="h-9 rounded-xl bg-surface-2 px-3 text-[14px] font-semibold outline-none"
+              aria-label="Payment app"
+            >
+              {upiApps.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
           <div>
             <p className="text-[15px] font-medium">Open straight to the scanner</p>

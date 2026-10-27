@@ -1,3 +1,5 @@
+import type { TxInput } from './api'
+
 // Reading UPI QR codes and handing the payment to a UPI app.
 //
 // A UPI QR holds a link like upi://pay?pa=shop@okaxis&pn=Shop&am=120.00&mc=5411.
@@ -138,6 +140,7 @@ export const upiApps: UpiApp[] = [
   { id: 'paytm', name: 'Paytm', short: 'Paytm', prefix: 'paytmmp://upi/pay', color: '#00BAF2' },
   { id: 'bhim', name: 'BHIM', short: 'BHIM', prefix: 'bhim://upi/pay', color: '#F47920' },
   { id: 'cred', name: 'CRED', short: 'CRED', prefix: 'credpay://upi/pay', color: '#111111' },
+  { id: 'super', name: 'super.money', short: 'super.money', prefix: 'super://pay', color: '#4F2CF5' },
 ]
 
 /** On Android, upi://pay shows the system's list of UPI apps. */
@@ -192,19 +195,14 @@ export function setLaunchScan(on: boolean) {
 // ---- A payment waiting for "did it go through?" ----
 
 export type PendingPayment = {
-  input: {
-    kind: 'expense' | 'lend' | 'repay'
-    amount: number
-    accountId: number
-    toAccountId: null
-    categoryId: number | null
-    personId: number | null
-    note: string
-    occurredAt: string
-    source: 'upi-scan'
-    payee: string
-  }
+  /** What to save: one transaction, or several for a split bill. */
+  items: TxInput[]
+  /** The amount handed to the UPI app. */
+  total: number
+  payee: string
   payeeName: string
+  /** People sharing the bill, for the confirmation. */
+  splitWith: string[]
   link: string
   appName: string
   startedAt: number
@@ -216,9 +214,12 @@ const PENDING_KEY = 'kosh:pendingPayment'
 
 export function readPending(): PendingPayment | null {
   try {
-    const p = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null') as PendingPayment | null
+    const p = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null') as (PendingPayment & { input?: TxInput & { payee: string } }) | null
     // After an hour it's stale; whatever happened, the person has moved on.
-    if (p && Date.now() - p.startedAt < 60 * 60 * 1000) return p
+    if (!p || Date.now() - p.startedAt > 60 * 60 * 1000) return null
+    // Saved by the first version, which held a single transaction.
+    if (p.input && !p.items) return { ...p, items: [p.input], total: p.input.amount, payee: p.input.payee, splitWith: [] }
+    return p
   } catch {}
   return null
 }
