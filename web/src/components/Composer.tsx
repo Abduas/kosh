@@ -8,6 +8,7 @@ import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, timeLabel,
 import { haptic, palette } from '../lib/look'
 import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
 import { payableAccounts } from '../lib/pay'
+import { useBackToClose } from '../lib/router'
 import { closeComposer, composer, openScanner, type ComposerPreset } from '../lib/store'
 import { payLink, platform, preferredApp, readPending, rememberApp, upiApps, writePending, type UpiApp, type UpiTarget } from '../lib/upi'
 import { isPersonKind, kindMeta } from '../lib/tx'
@@ -106,6 +107,7 @@ export function splitEqually(total: number, parts: number): number[] {
 
 export function Composer() {
   const { open, editing, preset, key } = composer.use((s) => s)
+  useBackToClose(open, closeComposer)
   return (
     <Drawer.Root open={open} onOpenChange={(o) => !o && closeComposer()} repositionInputs={false}>
       <Drawer.Portal>

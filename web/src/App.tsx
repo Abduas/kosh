@@ -10,8 +10,8 @@ import { api } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
 import { useBootstrap } from './lib/queries'
-import { linkHandler, match, navigate, useLocation } from './lib/router'
-import { composer, openComposer, openScanner, scanner } from './lib/store'
+import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
+import { closeScanner, composer, openComposer, openScanner, scanner } from './lib/store'
 import { launchScanEnabled, readPending } from './lib/upi'
 import { AccountDetail, Accounts } from './screens/Accounts'
 import { Activity } from './screens/Activity'
@@ -88,6 +88,7 @@ const Scanner = lazy(loadScanner)
 
 function ScannerHost() {
   const open = scanner.use((s) => s.open)
+  useBackToClose(open, closeScanner)
   return (
     <AnimatePresence>
       {open && (

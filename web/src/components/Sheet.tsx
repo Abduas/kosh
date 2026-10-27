@@ -1,5 +1,7 @@
 import { Drawer } from 'vaul'
+import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useBackToClose } from '../lib/router'
 import { cn } from './ui'
 
 /** A bottom sheet with drag-to-dismiss, used for every form in the app. */
@@ -22,6 +24,7 @@ export function Sheet({
   bodyClassName?: string
   dismissible?: boolean
 }) {
+  useBackToClose(open && dismissible, () => onOpenChange(false))
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false} dismissible={dismissible}>
       <Drawer.Portal>
@@ -33,7 +36,14 @@ export function Sheet({
           )}
         >
           <div className="mx-auto mt-2.5 h-[5px] w-10 shrink-0 rounded-full bg-ink/15" />
-          <Drawer.Title className="px-6 pb-1 pt-4 text-[20px] font-bold tracking-tight">{title}</Drawer.Title>
+          <div className="flex items-start gap-3 px-6 pb-1 pt-4">
+            <Drawer.Title className="min-w-0 flex-1 text-[20px] font-bold tracking-tight">{title}</Drawer.Title>
+            {dismissible && (
+              <button onClick={() => onOpenChange(false)} aria-label="Close" className="press -mr-2 -mt-0.5 grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-2">
+                <X className="size-[18px]" />
+              </button>
+            )}
+          </div>
           <Drawer.Description className={description ? 'px-6 text-[14px] text-ink-2' : 'sr-only'}>{description ?? title}</Drawer.Description>
           <div className={cn('overflow-y-auto overscroll-contain px-6 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-4', bodyClassName)}>{children}</div>
         </Drawer.Content>

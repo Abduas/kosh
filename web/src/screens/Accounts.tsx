@@ -34,6 +34,7 @@ export function Accounts() {
     <div>
       <ScreenHeader
         title="Accounts"
+        back="/"
         actions={
           <IconButton label="Add account" onClick={() => setAdding(true)} className="bg-surface shadow-card">
             <Plus className="size-5" />

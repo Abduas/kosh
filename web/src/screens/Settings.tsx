@@ -50,6 +50,29 @@ export function Settings() {
 
   const setPref = (p: Prefs) => update.mutate({ prefs: p })
 
+  // Opening the CSV URL directly would replace the installed app with the file
+  // and no way back. Fetch it instead, then share it (phones) or download it.
+  const exportCsv = async () => {
+    try {
+      const res = await fetch('/api/export.csv', { credentials: 'same-origin' })
+      if (!res.ok) throw new Error()
+      const name = `kosh-${new Date().toISOString().slice(0, 10)}.csv`
+      const file = new File([await res.blob()], name, { type: 'text/csv' })
+      if (matchMedia('(pointer: coarse)').matches && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: name }).catch(() => {})
+        return
+      }
+      const url = URL.createObjectURL(file)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch {
+      toast.error("Couldn't export. Check your connection and try again.")
+    }
+  }
+
   const signOut = async () => {
     await api('POST', '/api/auth/logout').catch(() => {})
     clearLocalData()
@@ -207,9 +230,7 @@ export function Settings() {
         <div className="border-t border-line" />
         <ListRow onClick={() => navigate('/budgets')} left={<RowIcon className="bg-pos/12 text-pos"><Target className="size-[18px]" /></RowIcon>} title="Budgets" chevron />
         <div className="border-t border-line" />
-        <a href="/api/export.csv" className="block">
-          <ListRow left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
-        </a>
+        <ListRow onClick={exportCsv} left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
       </div>
 
       {!standalone && (

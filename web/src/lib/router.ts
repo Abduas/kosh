@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type MouseEvent } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type MouseEvent } from 'react'
 
 // A tiny History API router: the app has a handful of flat routes, so a full
 // routing library would be more weight than help.
@@ -11,12 +11,55 @@ function notify() {
   listeners.forEach((l) => l())
 }
 
+// Open sheets, the composer and the scanner each add a history entry with the
+// same URL. The back button (Android, desktop) then closes the top one
+// instead of changing the screen underneath it.
+const closers: (() => void)[] = []
+let ignorePops = 0
+
 window.addEventListener('popstate', (e) => {
+  if (ignorePops > 0) {
+    // Our own history.back() after a sheet closed some other way.
+    ignorePops--
+    return
+  }
+  const closer = closers.pop()
+  if (closer) {
+    closer()
+    return
+  }
   const next = (e.state?.depth as number | undefined) ?? 0
   lastDirection = next < depth ? -1 : 1
   depth = next
   notify()
 })
+
+/** Lets the back button close an open sheet or overlay. */
+export function useBackToClose(open: boolean, close: () => void) {
+  const closeRef = useRef(close)
+  closeRef.current = close
+  useEffect(() => {
+    if (!open) return
+    const id = Math.random().toString(36).slice(2)
+    history.pushState({ ...history.state, overlay: id }, '')
+    let closedByBack = false
+    const closer = () => {
+      closedByBack = true
+      closeRef.current()
+    }
+    closers.push(closer)
+    return () => {
+      const i = closers.indexOf(closer)
+      if (i >= 0) closers.splice(i, 1)
+      // Closed by a button or a swipe: drop the entry we added, unless the
+      // app has already moved on to another screen on top of it.
+      if (!closedByBack && history.state?.overlay === id) {
+        ignorePops++
+        history.back()
+      }
+    }
+  }, [open])
+}
 
 export function navigate(to: string, opts: { replace?: boolean } = {}) {
   if (to === location.pathname + location.search) return
