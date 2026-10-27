@@ -8,6 +8,7 @@ import { accents } from '../lib/look'
 import { clearLocalData, queryClient, useData, useUpdateMe } from '../lib/queries'
 import { navigate } from '../lib/router'
 import { privacy, togglePrivacy } from '../lib/store'
+import { launchScanEnabled, setLaunchScan } from '../lib/upi'
 
 const currencies = [
   { code: 'INR', label: '₹ Indian Rupee' },
@@ -30,6 +31,7 @@ export function Settings() {
   const hidden = privacy.use((s) => s.hidden)
   const [name, setName] = useState(d.user.name)
   const [upi, setUpi] = useState(prefs.upiId ?? '')
+  const [launchScan, setLaunchScanState] = useState(launchScanEnabled)
   const [pwOpen, setPwOpen] = useState(false)
   const [install, setInstall] = useState<InstallEvent | null>(null)
   const standalone = matchMedia('(display-mode: standalone)').matches
@@ -137,6 +139,13 @@ export function Settings() {
             <p className="text-[12px] text-ink-3">Blur balances on this device. Tap the eye on Home to toggle.</p>
           </div>
           <Toggle checked={hidden} onChange={togglePrivacy} label="Hide amounts" />
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+          <div>
+            <p className="text-[15px] font-medium">Open straight to the scanner</p>
+            <p className="text-[12px] text-ink-3">When you open Kosh on this phone, it's ready to scan a UPI QR.</p>
+          </div>
+          <Toggle checked={launchScan} onChange={(v) => { setLaunchScan(v); setLaunchScanState(v) }} label="Open straight to the scanner" />
         </div>
       </div>
 

@@ -302,3 +302,65 @@ func TestUsersCannotTouchEachOthersData(t *testing.T) {
 		}
 	}
 }
+
+func TestPayeeMemory(t *testing.T) {
+	srv := newTestServer(t)
+	me := newClient(t, srv)
+	me.do("POST", "/api/auth/setup", map[string]string{"name": "A", "username": "payer", "password": "password123"}, 201, nil)
+	var boot struct {
+		Accounts   []idResp `json:"accounts"`
+		Categories []struct {
+			ID   int64  `json:"id"`
+			Kind string `json:"kind"`
+		} `json:"categories"`
+	}
+	me.do("GET", "/api/bootstrap", nil, 200, &boot)
+	cash := boot.Accounts[0].ID
+	food := boot.Categories[0].ID
+
+	var mem payeeMemory
+	me.do("GET", "/api/payees?vpa=shop@okaxis", nil, 200, &mem)
+	if mem.Known {
+		t.Fatalf("unknown payee reported as known: %+v", mem)
+	}
+	me.do("GET", "/api/payees", nil, 400, nil)
+
+	tx := map[string]any{"kind": "expense", "amount": 4500, "accountId": cash, "categoryId": food, "occurredAt": "2026-10-27T10:00", "source": "upi-scan", "payee": " Shop@OKAXIS "}
+	var created transaction
+	me.do("POST", "/api/transactions", tx, 201, &created)
+	if created.Source != "upi-scan" || created.Payee != "shop@okaxis" {
+		t.Fatalf("source/payee not stored: %+v", created)
+	}
+
+	me.do("GET", "/api/payees?vpa=SHOP@okaxis", nil, 200, &mem)
+	if !mem.Known || mem.Kind != "expense" || mem.AccountID != cash || mem.CategoryID == nil || *mem.CategoryID != food || mem.Count != 1 || mem.LastAmount != 4500 {
+		t.Fatalf("payee memory = %+v", mem)
+	}
+
+	// Editing without source/payee keeps them.
+	var edited transaction
+	me.do("PATCH", fmt.Sprintf("/api/transactions/%d", created.ID), map[string]any{"amount": 5000, "categoryId": food}, 200, &edited)
+	if edited.Source != "upi-scan" || edited.Payee != "shop@okaxis" {
+		t.Fatalf("edit dropped source/payee: %+v", edited)
+	}
+
+	// Search finds it by UPI ID.
+	var page struct {
+		Items []transaction `json:"items"`
+	}
+	me.do("GET", "/api/transactions?q=okaxis", nil, 200, &page)
+	if len(page.Items) != 1 {
+		t.Fatalf("search by payee found %d", len(page.Items))
+	}
+
+	bad := map[string]any{"kind": "expense", "amount": 100, "accountId": cash, "occurredAt": "2026-10-27T10:00"}
+	bad["source"] = "sms"
+	me.do("POST", "/api/transactions", bad, 400, nil)
+	bad["source"] = "upi-scan"
+	bad["payee"] = "not-a-vpa"
+	me.do("POST", "/api/transactions", bad, 400, nil)
+
+	// Payee memory needs a session.
+	other := newClient(t, srv)
+	other.do("GET", "/api/payees?vpa=shop@okaxis", nil, 401, nil)
+}

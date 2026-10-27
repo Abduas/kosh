@@ -17,6 +17,7 @@
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
   ],
   "shortcuts": [
+    { "name": "Scan & pay", "short_name": "Scan", "url": "/?scan=1", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
     { "name": "Add expense", "short_name": "Add", "url": "/?add=expense", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
     { "name": "Lend money", "short_name": "Lend", "url": "/people?add=lend", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
     { "name": "Activity", "url": "/activity", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }

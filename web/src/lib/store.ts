@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { Transaction, TxKind } from './api'
+import type { UpiTarget } from './upi'
 
 /** A minimal global store for UI state shared across screens. */
 export function createStore<T>(initial: T) {
@@ -52,6 +53,9 @@ export type ComposerPreset = {
   personId?: number
   categoryId?: number
   amount?: number
+  note?: string
+  /** A scanned UPI QR: the sheet becomes "pay this" instead of "record this". */
+  upi?: UpiTarget
 }
 
 type ComposerState = { open: boolean; editing: Transaction | null; preset: ComposerPreset; key: number }
@@ -68,4 +72,17 @@ export function editTransaction(tx: Transaction) {
 
 export function closeComposer() {
   composer.set({ open: false })
+}
+
+// ---- The QR scanner ----
+
+export const scanner = createStore({ open: false })
+
+export function openScanner() {
+  composer.set({ open: false })
+  scanner.set({ open: true })
+}
+
+export function closeScanner() {
+  scanner.set({ open: false })
 }

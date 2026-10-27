@@ -97,6 +97,8 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("PATCH /api/transactions/{id}", a.authed(a.updateTransaction))
 	mux.HandleFunc("DELETE /api/transactions/{id}", a.authed(a.deleteTransaction))
 
+	mux.HandleFunc("GET /api/payees", a.authed(a.lookupPayee))
+
 	mux.HandleFunc("GET /api/insights", a.authed(a.insights))
 	mux.HandleFunc("GET /api/insights/balance", a.authed(a.balanceHistory))
 

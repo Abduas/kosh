@@ -1,16 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { ChartPie, House, ListOrdered, Plus, Users, Wallet, Target, Tag, Settings as SettingsIcon } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { Toaster } from 'sonner'
 import { Composer } from './components/Composer'
+import { PaymentCheck } from './components/PaymentCheck'
 import { cn } from './components/ui'
 import { api } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
 import { useBootstrap } from './lib/queries'
 import { linkHandler, match, navigate, useLocation } from './lib/router'
-import { openComposer } from './lib/store'
+import { composer, openComposer, openScanner, scanner } from './lib/store'
+import { launchScanEnabled, readPending } from './lib/upi'
 import { AccountDetail, Accounts } from './screens/Accounts'
 import { Activity } from './screens/Activity'
 import { AuthScreen } from './screens/Auth'
@@ -80,6 +82,23 @@ export function App() {
   )
 }
 
+// The scanner and its QR decoder load only when needed.
+const loadScanner = () => import('./components/Scanner')
+const Scanner = lazy(loadScanner)
+
+function ScannerHost() {
+  const open = scanner.use((s) => s.open)
+  return (
+    <AnimatePresence>
+      {open && (
+        <Suspense fallback={<div className="fixed inset-0 z-[60] bg-black" />}>
+          <Scanner />
+        </Suspense>
+      )}
+    </AnimatePresence>
+  )
+}
+
 function Splash() {
   return (
     <div className="grid min-h-dvh place-items-center">
@@ -110,14 +129,36 @@ function isActive(to: string, path: string) {
 function Shell() {
   const { path, search } = useLocation()
 
-  // Home-screen shortcuts open the composer: /?add=expense, /people?add=lend
+  // Home-screen shortcuts: /?add=expense, /people?add=lend, /?scan=1
   useEffect(() => {
     const add = search.get('add')
     if (add === 'expense' || add === 'income' || add === 'lend' || add === 'transfer') {
       openComposer({ kind: add })
       navigate(path, { replace: true })
+    } else if (search.get('scan') === '1') {
+      openScanner()
+      navigate(path, { replace: true })
     }
   }, [search, path])
+
+  // Optionally open straight into the scanner: at launch, and when coming back
+  // after a minute away (iPhone home-screen apps resume rather than restart).
+  useEffect(() => {
+    const canAutoOpen = () => launchScanEnabled() && !readPending() && !composer.get().open
+    if (canAutoOpen()) openScanner()
+    let hiddenAt = 0
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') hiddenAt = Date.now()
+      else if (hiddenAt && Date.now() - hiddenAt > 60_000 && canAutoOpen()) openScanner()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    // Fetch the scanner in the background so the first scan opens instantly.
+    const warm = window.setTimeout(() => loadScanner().then((m) => m.warmUp()).catch(() => {}), 3000)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      clearTimeout(warm)
+    }
+  }, [])
 
   // Desktop shortcuts: N for new, / for search
   useEffect(() => {
@@ -200,6 +241,8 @@ function Shell() {
 
       <TabBar path={path} />
       <Composer />
+      <ScannerHost />
+      <PaymentCheck />
     </div>
   )
 }

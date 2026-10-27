@@ -29,17 +29,18 @@ type transaction struct {
 	OccurredAt  string `json:"occurredAt"`
 	Source      string `json:"source"`
 	Ref         string `json:"ref"`
+	Payee       string `json:"payee"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
 }
 
 var personKinds = map[string]bool{"lend": true, "borrow": true, "collect": true, "repay": true}
 
-const txColumns = `t.id, t.kind, t.amount, t.account_id, t.to_account_id, t.category_id, t.person_id, t.note, t.occurred_at, t.source, t.ref, t.created_at, t.updated_at`
+const txColumns = `t.id, t.kind, t.amount, t.account_id, t.to_account_id, t.category_id, t.person_id, t.note, t.occurred_at, t.source, t.ref, t.payee, t.created_at, t.updated_at`
 
 func scanTx(s interface{ Scan(...any) error }) (transaction, error) {
 	var t transaction
-	err := s.Scan(&t.ID, &t.Kind, &t.Amount, &t.AccountID, &t.ToAccountID, &t.CategoryID, &t.PersonID, &t.Note, &t.OccurredAt, &t.Source, &t.Ref, &t.CreatedAt, &t.UpdatedAt)
+	err := s.Scan(&t.ID, &t.Kind, &t.Amount, &t.AccountID, &t.ToAccountID, &t.CategoryID, &t.PersonID, &t.Note, &t.OccurredAt, &t.Source, &t.Ref, &t.Payee, &t.CreatedAt, &t.UpdatedAt)
 	return t, err
 }
 
@@ -52,7 +53,12 @@ type txInput struct {
 	PersonID    *int64  `json:"personId"`
 	Note        *string `json:"note"`
 	OccurredAt  *string `json:"occurredAt"`
+	Source      *string `json:"source"`
+	Payee       *string `json:"payee"`
 }
+
+// sources a client may set. "upi-scan" is a payment started from Kosh's QR scanner.
+var txSources = map[string]bool{"manual": true, "upi-scan": true}
 
 // apply merges the input into t. For fields that depend on kind (toAccountId,
 // categoryId, personId) an explicit null in the input clears them, so the
@@ -75,6 +81,12 @@ func (in txInput) apply(t *transaction) {
 	}
 	if in.OccurredAt != nil {
 		t.OccurredAt = *in.OccurredAt
+	}
+	if in.Source != nil {
+		t.Source = *in.Source
+	}
+	if in.Payee != nil {
+		t.Payee = strings.ToLower(strings.TrimSpace(*in.Payee))
 	}
 }
 
@@ -110,6 +122,15 @@ func (a *api) validateTx(ctx context.Context, uid int64, t *transaction) error {
 	}
 	if utf8.RuneCountInString(t.Note) > 280 {
 		return errValidation("Note is too long")
+	}
+	if t.Source == "" {
+		t.Source = "manual"
+	}
+	if !txSources[t.Source] {
+		return errValidation("Unknown source")
+	}
+	if len(t.Payee) > 100 || (t.Payee != "" && !strings.Contains(t.Payee, "@")) {
+		return errValidation("That UPI ID doesn't look right")
 	}
 	var err error
 	if t.OccurredAt, err = normalizeLocalTime(t.OccurredAt); err != nil {
@@ -182,9 +203,9 @@ func (a *api) createTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		respondErr(w, err)
 		return
 	}
-	res, err := a.db.ExecContext(r.Context(), `INSERT INTO transactions (user_id, kind, amount, account_id, to_account_id, category_id, person_id, note, occurred_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		uid, t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt)
+	res, err := a.db.ExecContext(r.Context(), `INSERT INTO transactions (user_id, kind, amount, account_id, to_account_id, category_id, person_id, note, occurred_at, source, payee)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uid, t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -219,8 +240,8 @@ func (a *api) updateTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		return
 	}
 	if _, err := a.db.ExecContext(r.Context(), `UPDATE transactions SET kind = ?, amount = ?, account_id = ?, to_account_id = ?, category_id = ?,
-		person_id = ?, note = ?, occurred_at = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
-		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, id, uid); err != nil {
+		person_id = ?, note = ?, occurred_at = ?, source = ?, payee = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
+		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, id, uid); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -287,8 +308,8 @@ func (a *api) listTransactions(w http.ResponseWriter, r *http.Request, uid int64
 	}
 	if text := strings.TrimSpace(q.Get("q")); text != "" {
 		like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(text) + "%"
-		cond := `(t.note LIKE ? ESCAPE '\' OR c.name LIKE ? ESCAPE '\' OR p.name LIKE ? ESCAPE '\' OR a1.name LIKE ? ESCAPE '\' OR a2.name LIKE ? ESCAPE '\'`
-		args = append(args, like, like, like, like, like)
+		cond := `(t.note LIKE ? ESCAPE '\' OR c.name LIKE ? ESCAPE '\' OR p.name LIKE ? ESCAPE '\' OR a1.name LIKE ? ESCAPE '\' OR a2.name LIKE ? ESCAPE '\' OR t.payee LIKE ? ESCAPE '\'`
+		args = append(args, like, like, like, like, like, like)
 		if f, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", ""), 64); err == nil && f > 0 {
 			cond += " OR t.amount = ?"
 			args = append(args, int64(math.Round(f*100)))

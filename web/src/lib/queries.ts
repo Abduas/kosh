@@ -152,6 +152,8 @@ export function txInput(t: Transaction): TxInput {
     personId: t.personId,
     note: t.note,
     occurredAt: t.occurredAt,
+    source: t.source === 'upi-scan' ? 'upi-scan' : 'manual',
+    payee: t.payee,
   }
 }
 

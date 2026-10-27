@@ -1,19 +1,20 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Drawer } from 'vaul'
-import { ArrowRight, CalendarDays, Check, ChevronDown, Delete, LayoutGrid, Plus, Trash2, X } from 'lucide-react'
+import { ArrowRight, CalendarDays, Check, ChevronDown, Delete, LayoutGrid, Lock, Plus, ScanLine, Store, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import type { Account, Person, Transaction, TxKind } from '../lib/api'
+import type { Account, Person, Transaction, TxInput, TxKind } from '../lib/api'
 import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, timeLabel, ymd } from '../lib/format'
 import { haptic, palette } from '../lib/look'
 import { useData, useDeleteTx, useSaveEntity, useSaveTx } from '../lib/queries'
-import { closeComposer, composer, type ComposerPreset } from '../lib/store'
+import { closeComposer, composer, openScanner, type ComposerPreset } from '../lib/store'
+import { payLink, platform, preferredApp, readPending, rememberApp, upiApps, writePending, type UpiApp, type UpiTarget } from '../lib/upi'
 import { isPersonKind, kindMeta } from '../lib/tx'
 import { Avatar, Chip, Glyph, Segmented, cn } from './ui'
 
 type Mode = 'expense' | 'income' | 'transfer' | 'people'
 type PersonKind = 'lend' | 'borrow' | 'collect' | 'repay'
-type Panel = 'keypad' | 'account' | 'toAccount' | 'date' | 'category' | 'person'
+type Panel = 'keypad' | 'account' | 'toAccount' | 'date' | 'category' | 'person' | 'app'
 
 const personKindHelp: Record<PersonKind, string> = {
   lend: 'You gave them money',
@@ -128,6 +129,10 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const savePerson = useSaveEntity<Person>('people')
 
   const initialKind: TxKind = editing?.kind ?? preset.kind ?? 'expense'
+  // Paying a scanned QR: money leaves, so only expenses and lend/repay make sense.
+  const upi = editing ? undefined : preset.upi
+  const amountLocked = upi?.amount != null
+  const [app, setApp] = useState(preferredApp)
   const accounts = d.activeAccounts
   const defaultAccount =
     editing?.accountId ?? preset.accountId ?? (accounts.find((a) => a.id === lastAccountId()) ?? accounts[0])?.id ?? 0
@@ -142,7 +147,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const [toAccountId, setToAccountId] = useState<number | null>(editing?.toAccountId ?? accounts.find((a) => a.id !== defaultAccount)?.id ?? null)
   const [categoryId, setCategoryId] = useState<number | null>(editing?.categoryId ?? preset.categoryId ?? null)
   const [personId, setPersonId] = useState<number | null>(editing?.personId ?? preset.personId ?? null)
-  const [note, setNote] = useState(editing?.note ?? '')
+  const [note, setNote] = useState(editing?.note ?? preset.note ?? '')
   const [occurredAt, setOccurredAt] = useState(editing?.occurredAt ?? localNow())
   const [panel, setPanel] = useState<Panel>('keypad')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -169,10 +174,18 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
     if (categoryId && d.categoriesById.get(categoryId)?.kind !== mode) setCategoryId(null)
   }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const press = useCallback((k: string) => {
-    haptic(6)
-    setExpr((e) => pressKey(e, k))
-  }, [])
+  const press = useCallback(
+    (k: string) => {
+      if (amountLocked) {
+        haptic(20)
+        toast('This QR sets the amount', { id: 'locked' })
+        return
+      }
+      haptic(6)
+      setExpr((e) => pressKey(e, k))
+    },
+    [amountLocked],
+  )
 
   const fail = (what: string, msg: string) => {
     haptic(30)
@@ -181,51 +194,93 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
     toast.error(msg)
   }
 
-  const submit = () => {
-    // With a sum on the keypad, the first press shows the result; the next one saves.
+  // With a sum on the keypad, the first press shows the result; the next one saves.
+  const resolveSum = () => {
     if (hasOp && result != null && result > 0) {
       setExpr(String(result))
       haptic(10)
-      return
+      return true
     }
+    return false
+  }
+
+  const buildInput = (): TxInput | null => {
     const amount = Math.round((result ?? 0) * 100)
-    if (amount <= 0) return fail('amount', 'Enter an amount')
-    if (!accountId) return fail('account', 'Add an account first')
-    if (mode === 'transfer' && (!toAccountId || toAccountId === accountId)) return fail('toAccount', 'Pick a different account to move money to')
+    if (amount <= 0) return fail('amount', 'Enter an amount'), null
+    if (!accountId) return fail('account', 'Add an account first'), null
+    if (mode === 'transfer' && (!toAccountId || toAccountId === accountId)) return fail('toAccount', 'Pick a different account to move money to'), null
     if (mode === 'people' && !personId) {
       setPanel('person')
-      return fail('person', 'Pick a person')
+      return fail('person', 'Pick a person'), null
     }
+    return {
+      kind,
+      amount,
+      accountId,
+      toAccountId: mode === 'transfer' ? toAccountId : null,
+      categoryId: mode === 'expense' || mode === 'income' ? categoryId : null,
+      personId: mode === 'people' ? personId : null,
+      note: note.trim(),
+      occurredAt,
+      ...(upi ? { source: 'upi-scan' as const, payee: upi.vpa } : {}),
+    }
+  }
+
+  const rememberAccount = () => {
+    try {
+      localStorage.setItem('kosh:lastAccount', String(accountId))
+    } catch {}
+  }
+
+  const submit = () => {
+    if (resolveSum()) return
+    const input = buildInput()
+    if (!input) return
     save.mutate(
-      {
-        id: editing?.id,
-        input: {
-          kind,
-          amount,
-          accountId,
-          toAccountId: mode === 'transfer' ? toAccountId : null,
-          categoryId: mode === 'expense' || mode === 'income' ? categoryId : null,
-          personId: mode === 'people' ? personId : null,
-          note: note.trim(),
-          occurredAt,
-        },
-      },
+      { id: editing?.id, input },
       {
         onSuccess: () => {
           haptic(15)
-          try {
-            localStorage.setItem('kosh:lastAccount', String(accountId))
-          } catch {}
-          toast.success(editing ? 'Changes saved' : `${kindMeta[kind].verb} ${money(amount)}`)
+          rememberAccount()
+          toast.success(editing ? 'Changes saved' : `${kindMeta[kind].verb} ${money(input.amount)}`)
           closeComposer()
         },
       },
     )
   }
 
+  // Hands the payment to a UPI app. It's saved when you come back and say it went through.
+  const pay = () => {
+    if (!upi || resolveSum()) return
+    const input = buildInput()
+    if (!input) return
+    if (platform === 'other') {
+      toast('Open Kosh on your phone to pay with a UPI app. Or use "Just save it" below.')
+      return
+    }
+    const link = payLink(upi, input.amount, app)
+    const startedAt = Date.now()
+    writePending({
+      input: { ...input, kind: input.kind as 'expense' | 'lend' | 'repay', toAccountId: null, source: 'upi-scan', payee: upi.vpa },
+      payeeName: upi.name,
+      link,
+      appName: app.name,
+      startedAt,
+      left: false,
+    })
+    rememberApp(app)
+    rememberAccount()
+    haptic(15)
+    window.location.href = link
+    window.setTimeout(() => {
+      const p = readPending()
+      if (p?.startedAt === startedAt && !p.left) toast.error(platform === 'ios' ? `${app.name} didn't open. Is it installed? Try another app.` : "No UPI app opened. Is one installed?")
+    }, 4000)
+  }
+
   // Physical keyboard on desktop
   const submitRef = useRef(submit)
-  submitRef.current = submit
+  submitRef.current = upi ? pay : submit
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
@@ -269,13 +324,25 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             setPanel('keypad')
             haptic(6)
           }}
-          options={[
-            { value: 'expense', label: 'Expense' },
-            { value: 'income', label: 'Income' },
-            { value: 'transfer', label: 'Transfer' },
-            { value: 'people', label: 'People' },
-          ]}
+          options={
+            upi
+              ? [
+                  { value: 'expense', label: 'Expense' },
+                  { value: 'people', label: 'Lend or pay back' },
+                ]
+              : [
+                  { value: 'expense', label: 'Expense' },
+                  { value: 'income', label: 'Income' },
+                  { value: 'transfer', label: 'Transfer' },
+                  { value: 'people', label: 'People' },
+                ]
+          }
         />
+        {!editing && !upi && (
+          <button onClick={openScanner} aria-label="Scan a UPI QR" className="press grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-2">
+            <ScanLine className="size-[18px]" />
+          </button>
+        )}
         {editing && (
           <button
             onClick={() => {
@@ -298,24 +365,36 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       {mode === 'people' && (
         <div className="px-4 pt-3">
           <div className="no-scrollbar flex gap-1.5 overflow-x-auto">
-            {(['lend', 'borrow', 'collect', 'repay'] as PersonKind[]).map((k) => (
+            {((upi ? ['lend', 'repay'] : ['lend', 'borrow', 'collect', 'repay']) as PersonKind[]).map((k) => (
               <Chip key={k} active={personKind === k} onClick={() => setPersonKind(k)} className="flex-1 justify-center">
                 {kindMeta[k].label}
               </Chip>
             ))}
           </div>
-          <p className="mt-1.5 text-center text-[12px] text-ink-3">{personKindHelp[personKind]}</p>
+          {!upi && <p className="mt-1.5 text-center text-[12px] text-ink-3">{personKindHelp[personKind]}</p>}
         </div>
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {upi && <PayeeCard upi={upi} link={payLink(upi, Math.round((result ?? 0) * 100), app)} onAlreadyPaid={submit} saving={save.isPending} />}
+
         {/* Amount */}
         <motion.div
           animate={shake === 'amount' ? { x: [0, -10, 10, -6, 6, 0] } : {}}
           transition={{ duration: 0.4 }}
-          className="flex flex-col items-center px-6 pb-1 pt-5"
+          className={cn('flex flex-col items-center px-6 pb-1', upi ? 'pt-2' : 'pt-5')}
         >
-          <div className="h-5 text-[13px] font-medium text-ink-3 tnum">{hasOp ? prettyExpr(expr) : ''}</div>
+          <div className="flex h-5 items-center gap-1 text-[13px] font-medium text-ink-3 tnum">
+            {amountLocked ? (
+              <>
+                <Lock className="size-3" /> Amount set by the QR
+              </>
+            ) : hasOp ? (
+              prettyExpr(expr)
+            ) : (
+              ''
+            )}
+          </div>
           <div className={cn('flex items-baseline justify-center font-bold tracking-[-0.04em] tnum', amountTone)}>
             <span className="mr-1 text-[30px] font-semibold opacity-60">{currencySymbol()}</span>
             <span className={cn('transition-[font-size] duration-200', (hasOp ? String(result ?? 0) : expr).length > 9 ? 'text-[44px]' : 'text-[58px]', !expr && 'text-ink-3/50')}>
@@ -327,6 +406,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             onChange={(e) => setNote(e.target.value)}
             maxLength={280}
             placeholder={mode === 'people' ? 'What was it for?' : 'Add a note'}
+            onFocus={(e) => upi && e.currentTarget.select()}
             className="mt-1 w-full max-w-[300px] rounded-xl bg-transparent py-1.5 text-center text-[15px] font-medium outline-none placeholder:text-ink-3 focus:bg-surface-2"
           />
         </motion.div>
@@ -337,6 +417,12 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             {account ? <Glyph icon={account.icon} color={account.color} size={22} /> : null}
             <span className="max-w-[120px] truncate">{account?.name ?? 'Account'}</span>
           </PickerChip>
+          {upi && platform === 'ios' && (
+            <PickerChip active={panel === 'app'} onClick={() => setPanel(panel === 'app' ? 'keypad' : 'app')}>
+              <AppDot app={app} />
+              <span>{app.short}</span>
+            </PickerChip>
+          )}
           {mode === 'transfer' && (
             <>
               <ArrowRight className="size-4 shrink-0 text-ink-3" />
@@ -404,7 +490,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       </div>
 
       {/* Keypad, or a picker in its place */}
-      <div className="relative h-[262px] shrink-0 overflow-hidden px-3">
+      <div className="relative h-[min(262px,33dvh)] shrink-0 overflow-hidden px-3">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={panel}
@@ -420,6 +506,21 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             )}
             {panel === 'toAccount' && (
               <AccountPicker accounts={accounts.filter((a) => a.id !== accountId)} selected={toAccountId ?? 0} onPick={(id) => { setToAccountId(id); setPanel('keypad') }} />
+            )}
+            {panel === 'app' && (
+              <div className="grid h-full grid-cols-2 content-start gap-2 overflow-y-auto pb-2">
+                <p className="col-span-2 px-1 text-[12px] text-ink-3">Kosh opens this app with the payment filled in.</p>
+                {upiApps.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => { haptic(6); setApp(a); setPanel('keypad') }}
+                    className={cn('press flex items-center gap-2.5 rounded-2xl p-3 text-left', a.id === app.id ? 'bg-ink text-bg' : 'bg-surface-2')}
+                  >
+                    <AppDot app={a} size={32} />
+                    <span className="truncate text-[14px] font-semibold">{a.name}</span>
+                  </button>
+                ))}
+              </div>
             )}
             {panel === 'date' && <DatePicker value={occurredAt} onChange={setOccurredAt} onDone={() => setPanel('keypad')} />}
             {panel === 'category' && (
@@ -451,6 +552,23 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       </div>
 
       <div className="px-4 pt-2">
+        {upi ? (
+          <>
+            <button
+              onClick={pay}
+              className="press flex h-14 w-full items-center justify-center gap-2 rounded-[20px] bg-accent text-[16px] font-semibold text-white shadow-[0_12px_30px_-12px_var(--accent)]"
+            >
+              {hasOp ? (
+                <>= {money(Math.round((result ?? 0) * 100))}</>
+              ) : (
+                <>
+                  Pay {result ? money(Math.round(result * 100)) : ''} {platform === 'ios' ? `with ${app.short}` : ''}
+                  <ArrowRight className="size-5" strokeWidth={2.4} />
+                </>
+              )}
+            </button>
+          </>
+        ) : (
         <button
           onClick={submit}
           disabled={save.isPending}
@@ -465,7 +583,50 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             </>
           )}
         </button>
+        )}
       </div>
+    </div>
+  )
+}
+
+function AppDot({ app, size = 20 }: { app: UpiApp; size?: number }) {
+  return (
+    <span className="grid shrink-0 place-items-center rounded-full font-bold text-white" style={{ width: size, height: size, background: app.color, fontSize: size * 0.45 }}>
+      {app.short[0]}
+    </span>
+  )
+}
+
+function PayeeCard({ upi, link, onAlreadyPaid, saving }: { upi: UpiTarget; link: string; onAlreadyPaid: () => void; saving: boolean }) {
+  const [details, setDetails] = useState(false)
+  return (
+    <div className="mx-4 mt-3 rounded-[20px] bg-surface-2 px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <button onClick={() => setDetails((v) => !v)} aria-expanded={details} aria-label={`${upi.name}, show QR details`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          {upi.merchant ? (
+            <span className="grid size-9 shrink-0 place-items-center rounded-[12px] bg-accent/12 text-accent">
+              <Store className="size-[18px]" />
+            </span>
+          ) : (
+            <Avatar name={upi.name} color="#64748B" size={36} />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-semibold">{upi.name}</span>
+            <span className="block truncate text-[12px] text-ink-3">
+              {upi.merchant ? 'Shop' : 'Person'} · {upi.vpa}
+            </span>
+          </span>
+        </button>
+        <button onClick={onAlreadyPaid} disabled={saving} className="press shrink-0 rounded-full bg-surface px-3 py-1.5 text-[12px] font-semibold text-ink-2 disabled:opacity-60">
+          Already paid
+        </button>
+      </div>
+      {details && (
+        <div className="mt-2 space-y-1.5 border-t border-line pt-2 text-[11px] text-ink-3">
+          <p className="break-all"><span className="font-semibold text-ink-2">QR: </span>{upi.raw}</p>
+          <p className="break-all"><span className="font-semibold text-ink-2">Opens: </span>{link}</p>
+        </div>
+      )}
     </div>
   )
 }

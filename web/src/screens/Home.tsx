@@ -1,5 +1,5 @@
 import { motion } from 'motion/react'
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Eye, EyeOff, HandCoins, Plus, Settings as SettingsIcon, Sparkles, Target } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Eye, EyeOff, HandCoins, Plus, ScanLine, Settings as SettingsIcon, Sparkles, Target } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AreaLine } from '../components/Charts'
 import { AccountSheet } from '../components/Forms'
@@ -10,7 +10,7 @@ import { greeting, money, shortDate, ymd } from '../lib/format'
 import { haptic } from '../lib/look'
 import { useBalanceHistory, useBudgets, useData, useInsights, useTransactions } from '../lib/queries'
 import { navigate } from '../lib/router'
-import { openComposer, privacy, togglePrivacy } from '../lib/store'
+import { openComposer, openScanner, privacy, togglePrivacy } from '../lib/store'
 
 function monthRange(d = new Date()) {
   return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)), month: ymd(d).slice(0, 7) }
@@ -90,9 +90,9 @@ export function Home() {
       {/* Quick actions */}
       <div className="mt-5 grid grid-cols-4 gap-2">
         {[
+          { label: 'Scan & pay', icon: ScanLine, kind: 'scan' as const, color: 'var(--accent)' },
           { label: 'Expense', icon: ArrowUpRight, kind: 'expense' as const, color: 'var(--neg)' },
           { label: 'Income', icon: ArrowDownLeft, kind: 'income' as const, color: 'var(--pos)' },
-          { label: 'Transfer', icon: ArrowLeftRight, kind: 'transfer' as const, color: 'var(--accent)' },
           { label: 'Lend', icon: HandCoins, kind: 'lend' as const, color: 'var(--lend)' },
         ].map((a, i) => (
           <motion.button
@@ -101,7 +101,7 @@ export function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.08 + i * 0.04, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             whileTap={{ scale: 0.94 }}
-            onClick={() => { haptic(); openComposer({ kind: a.kind }) }}
+            onClick={() => { haptic(); if (a.kind === 'scan') openScanner(); else openComposer({ kind: a.kind }) }}
             className="flex flex-col items-center gap-1.5 rounded-[20px] bg-surface py-3 shadow-card"
           >
             <span className="grid size-10 place-items-center rounded-[14px]" style={{ background: `color-mix(in oklab, ${a.color} 14%, transparent)`, color: a.color }}>

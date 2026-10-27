@@ -66,11 +66,28 @@ export type Transaction = {
   occurredAt: string // local 'YYYY-MM-DDTHH:MM'
   source: string
   ref: string
+  payee: string // UPI ID for payments made from Kosh's scanner
   createdAt: string
   updatedAt: string
 }
 
-export type TxInput = Pick<Transaction, 'kind' | 'amount' | 'accountId' | 'toAccountId' | 'categoryId' | 'personId' | 'note' | 'occurredAt'>
+export type TxInput = Pick<Transaction, 'kind' | 'amount' | 'accountId' | 'toAccountId' | 'categoryId' | 'personId' | 'note' | 'occurredAt'> & {
+  source?: 'manual' | 'upi-scan'
+  payee?: string
+}
+
+/** What Kosh remembers about a UPI ID from the last payment to it. */
+export type PayeeMemory = {
+  known: boolean
+  kind?: TxKind
+  accountId?: number
+  categoryId?: number | null
+  personId?: number | null
+  note?: string
+  count: number
+  lastAmount?: number
+  lastAt?: string
+}
 
 export type Bootstrap = { user: User; accounts: Account[]; categories: Category[]; people: Person[] }
 

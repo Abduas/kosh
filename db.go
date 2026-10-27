@@ -127,6 +127,11 @@ var migrations = []string{
 		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 	);
 	CREATE UNIQUE INDEX budgets_user_category ON budgets(user_id, IFNULL(category_id, 0));`,
+
+	// payee is the UPI ID (VPA) a scanned payment went to, lowercased. The last
+	// transaction to a payee is how Kosh remembers its category, person and account.
+	`ALTER TABLE transactions ADD COLUMN payee TEXT NOT NULL DEFAULT '';
+	CREATE INDEX transactions_payee ON transactions(user_id, payee, occurred_at DESC) WHERE payee != '';`,
 }
 
 func migrate(db *sql.DB) error {

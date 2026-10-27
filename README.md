@@ -7,6 +7,9 @@ where your money goes. One small Go binary, your data in one SQLite file.
 ## What it does today
 
 - **Accounts:** banks, cash, wallets (Paytm, PhonePe…), credit cards, savings. Balances update with every entry.
+- **Scan & pay:** scan any UPI QR (or pick a photo of one, or type a UPI ID). Kosh fills in who it's for,
+  the amount, category and person, opens GPay, PhonePe, Paytm, BHIM or CRED with the payment ready, and asks
+  "did it go through?" when you come back. It remembers each UPI ID, so the next scan is one tap.
 - **Fast entry:** a keypad that does sums (`450+120`), one-tap categories, and keyboard input on desktop.
 - **People:** lend, borrow, partial repayments, a running balance per person, one-tap "settle up",
   and WhatsApp reminders with your UPI ID.
@@ -47,9 +50,11 @@ It's also built to deploy on [Sideyard](https://rabeeh-ta.github.io/sideyard/): 
 | `auth.go` | First-run setup, login, sessions, rate limiting |
 | `finance.go` | Accounts, categories, people, settings |
 | `transactions.go` | Transactions: validation, search, paging |
+| `payees.go` | What Kosh remembers about each UPI ID |
 | `insights.go`, `budgets.go` | Reports, budgets, CSV export |
 | `api_test.go` | End-to-end API tests (`go test ./...`) |
-| `web/src/components/Composer.tsx` | The add/edit transaction sheet and keypad |
+| `web/src/components/Composer.tsx` | The add/edit transaction sheet and keypad (and the pay sheet after a scan) |
+| `web/src/components/Scanner.tsx`, `web/src/lib/upi.ts` | QR scanner, UPI QR parsing, links that open UPI apps |
 | `web/src/screens/` | Home, Activity, People, Insights, Accounts, Budgets, Settings |
 
 Money is stored as integers in minor units (paise). Each transaction has a kind that decides
@@ -60,5 +65,5 @@ and `repay` (you paid them back).
 
 - Vehicles and documents (insurance, PUC, tax, RC, licence) with expiry reminders
 - Works and clients, with monthly or yearly billing and pending payments
-- Automatic capture of UPI payments (share target, Android companion app, SMS and email parsing)
+- Automatic capture of UPI payments made outside Kosh (share target, Android companion app, SMS and email parsing)
 - Recurring transactions and offline entry with sync
