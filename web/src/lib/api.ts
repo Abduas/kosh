@@ -69,8 +69,6 @@ export type Transaction = {
   source: string
   ref: string
   payee: string // UPI ID for payments made from Kosh's scanner
-  /** pending: the money left but the UPI app didn't confirm the payment yet. */
-  status: 'done' | 'pending'
   createdAt: string
   updatedAt: string
 }
@@ -78,7 +76,6 @@ export type Transaction = {
 export type TxInput = Pick<Transaction, 'kind' | 'amount' | 'accountId' | 'toAccountId' | 'categoryId' | 'personId' | 'note' | 'occurredAt'> & {
   source?: 'manual' | 'upi-scan'
   payee?: string
-  status?: 'done' | 'pending'
 }
 
 /** What Kosh remembers about a UPI ID from the last payment to it. */
@@ -93,7 +90,6 @@ export type PayeeMemory = {
   lastAmount?: number
   lastAt?: string
   lastSavedAt?: string // UTC, when the last payment was saved
-  lastStatus?: 'done' | 'pending'
 }
 
 export type Bootstrap = { user: User; accounts: Account[]; categories: Category[]; people: Person[] }

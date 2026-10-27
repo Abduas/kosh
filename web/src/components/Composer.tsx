@@ -718,10 +718,7 @@ function minutesAgo(utc: string): number {
 }
 
 function agoText(min: number): string {
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min} min ago`
-  if (min < 60 * 24) return `${Math.round(min / 60)} h ago`
-  return `${Math.round(min / 1440)} days ago`
+  return min < 1 ? 'just now' : `${min} min ago`
 }
 
 function PayeeCard({
@@ -738,9 +735,9 @@ function PayeeCard({
   saving: boolean
 }) {
   const [details, setDetails] = useState(false)
-  // Paying twice is the classic UPI mistake when an app shows "pending".
+  // A second payment minutes after the first is usually a mistake.
   const min = recent ? minutesAgo(recent.savedAt) : Infinity
-  const warn = recent && ((recent.status === 'pending' && min < 60 * 24 * 5) || min < 30) ? recent : null
+  const warn = recent && min < 30 ? recent : null
   return (
     <div className="mx-4 mt-3 rounded-[20px] bg-surface-2 px-3 py-2.5">
       <div className="flex items-center gap-3">
@@ -766,9 +763,7 @@ function PayeeCard({
       {warn && (
         <p className="mt-2 flex items-start gap-2 rounded-xl bg-warn/12 px-2.5 py-2 text-[12px] font-medium text-warn">
           <TriangleAlert className="mt-px size-3.5 shrink-0" />
-          {warn.status === 'pending'
-            ? `Your ${money(warn.amount)} payment here ${agoText(min)} is still pending. If the money left your account, don't pay again: it usually comes back by the next working day.`
-            : `You paid ${money(warn.amount)} here ${agoText(min)}. Make sure you're not paying twice.`}
+          {`You paid ${money(warn.amount)} here ${agoText(min)}. Make sure you're not paying twice.`}
         </p>
       )}
       {details && (

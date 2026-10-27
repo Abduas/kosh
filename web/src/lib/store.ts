@@ -57,7 +57,7 @@ export type ComposerPreset = {
   /** A scanned UPI QR: the sheet becomes "pay this" instead of "record this". */
   upi?: UpiTarget
   /** The last payment to this UPI ID, to warn before paying twice. */
-  recent?: { amount: number; savedAt: string; status: 'done' | 'pending' }
+  recent?: { amount: number; savedAt: string }
 }
 
 type ComposerState = { open: boolean; editing: Transaction | null; preset: ComposerPreset; key: number }

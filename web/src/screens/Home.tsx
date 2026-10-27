@@ -3,7 +3,6 @@ import { ArrowDownLeft, ArrowUpRight, Eye, EyeOff, HandCoins, Plus, ScanLine, Se
 import { useMemo, useState } from 'react'
 import { AreaLine } from '../components/Charts'
 import { AccountSheet } from '../components/Forms'
-import { PendingPayments } from '../components/PendingPayments'
 import { Amount, BigAmount } from '../components/Money'
 import { TxList } from '../components/TxList'
 import { Avatar, Card, EmptyState, Glyph, IconButton, ProgressBar, SectionTitle, Skeleton, TextLink, cn } from '../components/ui'
@@ -112,8 +111,6 @@ export function Home() {
           </motion.button>
         ))}
       </div>
-
-      <PendingPayments />
 
       {/* Accounts */}
       <SectionTitle title="Accounts" action={<TextLink onClick={() => navigate('/accounts')}>See all</TextLink>} />

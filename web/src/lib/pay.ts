@@ -29,7 +29,7 @@ export async function startPayment(target: UpiTarget) {
       preset.categoryId = kind === 'expense' ? (memory.categoryId ?? undefined) : undefined
     }
     if (memory.note) preset.note = memory.note
-    if (memory.lastSavedAt && memory.lastAmount) preset.recent = { amount: memory.lastAmount, savedAt: memory.lastSavedAt, status: memory.lastStatus ?? 'done' }
+    if (memory.lastSavedAt && memory.lastAmount) preset.recent = { amount: memory.lastAmount, savedAt: memory.lastSavedAt }
   } else if (boot) {
     const person = target.merchant ? undefined : boot.people.find((p) => !p.archived && nameMatches(p.name, target.name))
     if (person) {

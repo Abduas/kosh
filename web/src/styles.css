@@ -71,9 +71,32 @@
     font-feature-settings: 'cv11', 'ss01', 'ss03';
     text-rendering: optimizeLegibility;
   }
+  /* Feel like an app, not a web page: no zooming, no rubber-band scroll at
+     the page edges, no text selection or long-press menus outside fields. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: pan-x pan-y;
+    overscroll-behavior: none;
+  }
   body {
-    overscroll-behavior-y: none;
+    overscroll-behavior: none;
     min-height: 100dvh;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  input,
+  textarea,
+  [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+  img,
+  svg,
+  a {
+    -webkit-user-drag: none;
   }
   button {
     cursor: pointer;

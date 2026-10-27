@@ -137,6 +137,10 @@ var migrations = []string{
 	// didn't confirm it. It counts in balances until you mark it done or refunded.
 	`ALTER TABLE transactions ADD COLUMN status TEXT NOT NULL DEFAULT 'done' CHECK (status IN ('done', 'pending'));
 	CREATE INDEX transactions_pending ON transactions(user_id) WHERE status = 'pending';`,
+
+	// Pending payments were dropped as a feature; settle any that were saved.
+	// The status column stays (columns are only ever added) and is unused.
+	`UPDATE transactions SET status = 'done' WHERE status = 'pending';`,
 }
 
 func migrate(db *sql.DB) error {

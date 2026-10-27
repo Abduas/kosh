@@ -3,8 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { dehydrate } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { App } from './App'
+import { nativeFeel } from './lib/native'
 import { CACHE_BUSTER, CACHE_KEY, dehydrateOptions, persister, queryClient } from './lib/queries'
 import './styles.css'
+
+nativeFeel()
 
 // The persister saves at most once a second. When the app is hidden or closed,
 // save right away so the next launch never starts from older data.

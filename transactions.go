@@ -30,18 +30,17 @@ type transaction struct {
 	Source      string `json:"source"`
 	Ref         string `json:"ref"`
 	Payee       string `json:"payee"`
-	Status      string `json:"status"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
 }
 
 var personKinds = map[string]bool{"lend": true, "borrow": true, "collect": true, "repay": true}
 
-const txColumns = `t.id, t.kind, t.amount, t.account_id, t.to_account_id, t.category_id, t.person_id, t.note, t.occurred_at, t.source, t.ref, t.payee, t.status, t.created_at, t.updated_at`
+const txColumns = `t.id, t.kind, t.amount, t.account_id, t.to_account_id, t.category_id, t.person_id, t.note, t.occurred_at, t.source, t.ref, t.payee, t.created_at, t.updated_at`
 
 func scanTx(s interface{ Scan(...any) error }) (transaction, error) {
 	var t transaction
-	err := s.Scan(&t.ID, &t.Kind, &t.Amount, &t.AccountID, &t.ToAccountID, &t.CategoryID, &t.PersonID, &t.Note, &t.OccurredAt, &t.Source, &t.Ref, &t.Payee, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+	err := s.Scan(&t.ID, &t.Kind, &t.Amount, &t.AccountID, &t.ToAccountID, &t.CategoryID, &t.PersonID, &t.Note, &t.OccurredAt, &t.Source, &t.Ref, &t.Payee, &t.CreatedAt, &t.UpdatedAt)
 	return t, err
 }
 
@@ -56,7 +55,6 @@ type txInput struct {
 	OccurredAt  *string `json:"occurredAt"`
 	Source      *string `json:"source"`
 	Payee       *string `json:"payee"`
-	Status      *string `json:"status"`
 }
 
 // sources a client may set. "upi-scan" is a payment started from Kosh's QR scanner.
@@ -89,9 +87,6 @@ func (in txInput) apply(t *transaction) {
 	}
 	if in.Payee != nil {
 		t.Payee = strings.ToLower(strings.TrimSpace(*in.Payee))
-	}
-	if in.Status != nil {
-		t.Status = *in.Status
 	}
 }
 
@@ -136,12 +131,6 @@ func (a *api) validateTx(ctx context.Context, uid int64, t *transaction) error {
 	}
 	if len(t.Payee) > 100 || (t.Payee != "" && !strings.Contains(t.Payee, "@")) {
 		return errValidation("That UPI ID doesn't look right")
-	}
-	if t.Status == "" {
-		t.Status = "done"
-	}
-	if t.Status != "done" && t.Status != "pending" {
-		return errValidation("Unknown status")
 	}
 	var err error
 	if t.OccurredAt, err = normalizeLocalTime(t.OccurredAt); err != nil {
@@ -233,9 +222,9 @@ type execer interface {
 }
 
 func insertTx(ctx context.Context, db execer, uid int64, t transaction) (sql.Result, error) {
-	return db.ExecContext(ctx, `INSERT INTO transactions (user_id, kind, amount, account_id, to_account_id, category_id, person_id, note, occurred_at, source, payee, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		uid, t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, t.Status)
+	return db.ExecContext(ctx, `INSERT INTO transactions (user_id, kind, amount, account_id, to_account_id, category_id, person_id, note, occurred_at, source, payee)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uid, t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee)
 }
 
 // createTransactions saves several transactions at once, all or none. A split
@@ -309,8 +298,8 @@ func (a *api) updateTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		return
 	}
 	if _, err := a.db.ExecContext(r.Context(), `UPDATE transactions SET kind = ?, amount = ?, account_id = ?, to_account_id = ?, category_id = ?,
-		person_id = ?, note = ?, occurred_at = ?, source = ?, payee = ?, status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
-		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, t.Status, id, uid); err != nil {
+		person_id = ?, note = ?, occurred_at = ?, source = ?, payee = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
+		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, id, uid); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -367,10 +356,6 @@ func (a *api) listTransactions(w http.ResponseWriter, r *http.Request, uid int64
 	if v, err := strconv.ParseInt(q.Get("person"), 10, 64); err == nil {
 		where = append(where, "t.person_id = ?")
 		args = append(args, v)
-	}
-	if status := q.Get("status"); status == "done" || status == "pending" {
-		where = append(where, "t.status = ?")
-		args = append(args, status)
 	}
 	if kinds := q.Get("kind"); kinds != "" {
 		list := strings.Split(kinds, ",")

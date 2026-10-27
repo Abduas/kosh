@@ -1,4 +1,4 @@
-import { Check, Clock, RotateCcw } from 'lucide-react'
+import { Check, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { money } from '../lib/format'
@@ -57,18 +57,14 @@ export function PaymentCheck() {
   const person = first.personId ? d.peopleById.get(first.personId) : undefined
   const split = pending.splitWith.filter(Boolean)
 
-  const record = (status: 'done' | 'pending') => {
-    save.mutate(
-      pending.items.map((i) => ({ ...i, status })),
-      {
-        onSuccess: () => {
-          haptic(15)
-          writePending(null)
-          if (status === 'done') toast.success(`Paid ${money(pending.total)} to ${pending.payeeName}`)
-          else toast('Saved as pending. Mark it done or refunded from Home once you know.')
-        },
+  const yes = () => {
+    save.mutate(pending.items, {
+      onSuccess: () => {
+        haptic(15)
+        writePending(null)
+        toast.success(`Paid ${money(pending.total)} to ${pending.payeeName}`)
       },
-    )
+    })
   }
   const no = () => {
     haptic(10)
@@ -108,24 +104,18 @@ export function PaymentCheck() {
       </div>
 
       <div className="mt-5 grid gap-2">
-        <Button size="lg" loading={save.isPending} icon={<Check className="size-5" strokeWidth={2.6} />} onClick={() => record('done')}>
+        <Button size="lg" loading={save.isPending} icon={<Check className="size-5" strokeWidth={2.6} />} onClick={yes}>
           Yes, it's paid
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="secondary" disabled={save.isPending} icon={<Clock className="size-4 text-warn" />} onClick={() => record('pending')}>
-            It's pending
-          </Button>
           <Button variant="secondary" disabled={save.isPending} onClick={no}>
             No, it failed
           </Button>
+          <Button variant="secondary" disabled={save.isPending} icon={<RotateCcw className="size-4" />} onClick={retry}>
+            Try again
+          </Button>
         </div>
-        <Button variant="ghost" size="sm" icon={<RotateCcw className="size-4" />} onClick={retry}>
-          Didn't get to pay? Open {pending.appName} again
-        </Button>
       </div>
-      <p className="mt-3 text-center text-[12px] text-ink-3">
-        Pending means the money left your account but the app didn't confirm. Don't pay again: it usually completes or comes back by the next working day.
-      </p>
     </Sheet>
   )
 }
