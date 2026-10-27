@@ -1,0 +1,228 @@
+import { Check, Download, KeyRound, LogOut, Monitor, Moon, Smartphone, Sun, Tag, Target, Wallet } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
+import { Sheet } from '../components/Sheet'
+import { Avatar, Button, Field, ListRow, ScreenHeader, SectionTitle, Segmented, TextInput, Toggle, cn } from '../components/ui'
+import { api, type Prefs } from '../lib/api'
+import { accents } from '../lib/look'
+import { clearLocalData, queryClient, useData, useUpdateMe } from '../lib/queries'
+import { navigate } from '../lib/router'
+import { privacy, togglePrivacy } from '../lib/store'
+
+const currencies = [
+  { code: 'INR', label: '₹ Indian Rupee' },
+  { code: 'USD', label: '$ US Dollar' },
+  { code: 'EUR', label: '€ Euro' },
+  { code: 'GBP', label: '£ British Pound' },
+  { code: 'AED', label: 'د.إ UAE Dirham' },
+  { code: 'SAR', label: '﷼ Saudi Riyal' },
+  { code: 'SGD', label: 'S$ Singapore Dollar' },
+  { code: 'CAD', label: 'C$ Canadian Dollar' },
+  { code: 'AUD', label: 'A$ Australian Dollar' },
+]
+
+type InstallEvent = Event & { prompt: () => Promise<void> }
+
+export function Settings() {
+  const d = useData()
+  const update = useUpdateMe()
+  const prefs = d.user.prefs
+  const hidden = privacy.use((s) => s.hidden)
+  const [name, setName] = useState(d.user.name)
+  const [upi, setUpi] = useState(prefs.upiId ?? '')
+  const [pwOpen, setPwOpen] = useState(false)
+  const [install, setInstall] = useState<InstallEvent | null>(null)
+  const standalone = matchMedia('(display-mode: standalone)').matches
+
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault()
+      setInstall(e as InstallEvent)
+    }
+    window.addEventListener('beforeinstallprompt', onPrompt)
+    return () => window.removeEventListener('beforeinstallprompt', onPrompt)
+  }, [])
+
+  const setPref = (p: Prefs) => update.mutate({ prefs: p })
+
+  const signOut = async () => {
+    await api('POST', '/api/auth/logout').catch(() => {})
+    clearLocalData()
+    queryClient.setQueryData(['auth'], { needsSetup: false, signedIn: false })
+    navigate('/', { replace: true })
+  }
+
+  return (
+    <div>
+      <ScreenHeader title="Settings" back="/" />
+
+      <div className="flex items-center gap-4 rounded-[24px] bg-surface p-4 shadow-card">
+        <Avatar name={d.user.name} color={accents[prefs.accent ?? 'violet'] ?? '#7C5CFF'} size={56} />
+        <div className="min-w-0 flex-1">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => name.trim() && name !== d.user.name && update.mutate({ name })}
+            className="w-full rounded-lg bg-transparent text-[19px] font-bold tracking-tight outline-none focus:bg-surface-2"
+            aria-label="Your name"
+          />
+          <p className="text-[13px] text-ink-3">@{d.user.username}</p>
+        </div>
+      </div>
+
+      <SectionTitle title="Appearance" />
+      <div className="space-y-4 rounded-[22px] bg-surface p-4 shadow-card">
+        <Segmented
+          id="theme"
+          value={prefs.theme ?? 'system'}
+          onChange={(theme) => setPref({ theme })}
+          options={[
+            { value: 'system', label: <><Monitor className="size-4" /> Auto</> },
+            { value: 'light', label: <><Sun className="size-4" /> Light</> },
+            { value: 'dark', label: <><Moon className="size-4" /> Dark</> },
+          ]}
+        />
+        <div>
+          <p className="mb-2.5 text-[13px] font-medium text-ink-2">Accent</p>
+          <div className="flex flex-wrap gap-2.5">
+            {Object.entries(accents).map(([key, hex]) => {
+              const on = (prefs.accent ?? 'violet') === key
+              return (
+                <button
+                  key={key}
+                  aria-label={key}
+                  onClick={() => setPref({ accent: key })}
+                  className="press grid size-9 place-items-center rounded-full"
+                  style={{ background: hex, boxShadow: on ? `0 0 0 3px var(--surface), 0 0 0 5px ${hex}` : undefined }}
+                >
+                  {on && <Check className="size-4 text-white" strokeWidth={3} />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <SectionTitle title="Money" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <span className="text-[15px] font-medium">Currency</span>
+          <select
+            value={prefs.currency ?? 'INR'}
+            onChange={(e) => setPref({ currency: e.target.value })}
+            className="h-9 rounded-xl bg-surface-2 px-3 text-[14px] font-semibold outline-none"
+          >
+            {currencies.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="border-t border-line px-4 py-3">
+          <Field label="Your UPI ID" hint="Added to payment reminders so people can pay you back quickly.">
+            <TextInput
+              value={upi}
+              onChange={(e) => setUpi(e.target.value.trim())}
+              onBlur={() => upi !== (prefs.upiId ?? '') && setPref({ upiId: upi })}
+              placeholder="yourname@okaxis"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </Field>
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+          <div>
+            <p className="text-[15px] font-medium">Hide amounts</p>
+            <p className="text-[12px] text-ink-3">Blur balances on this device. Tap the eye on Home to toggle.</p>
+          </div>
+          <Toggle checked={hidden} onChange={togglePrivacy} label="Hide amounts" />
+        </div>
+      </div>
+
+      <SectionTitle title="Manage" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <ListRow onClick={() => navigate('/accounts')} left={<RowIcon className="bg-accent/12 text-accent"><Wallet className="size-[18px]" /></RowIcon>} title="Accounts" chevron />
+        <div className="border-t border-line" />
+        <ListRow onClick={() => navigate('/categories')} left={<RowIcon className="bg-warn/12 text-warn"><Tag className="size-[18px]" /></RowIcon>} title="Categories" chevron />
+        <div className="border-t border-line" />
+        <ListRow onClick={() => navigate('/budgets')} left={<RowIcon className="bg-pos/12 text-pos"><Target className="size-[18px]" /></RowIcon>} title="Budgets" chevron />
+        <div className="border-t border-line" />
+        <a href="/api/export.csv" className="block">
+          <ListRow left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
+        </a>
+      </div>
+
+      {!standalone && (
+        <>
+          <SectionTitle title="App" />
+          <div className="flex items-center gap-3 rounded-[22px] bg-surface p-4 shadow-card">
+            <RowIcon className="bg-accent/12 text-accent">
+              <Smartphone className="size-[18px]" />
+            </RowIcon>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-medium">Install Kosh</p>
+              <p className="text-[12px] text-ink-3">{install ? 'Add it to your home screen. Opens full screen, works offline.' : 'In your browser menu, choose "Add to Home Screen".'}</p>
+            </div>
+            {install && (
+              <Button size="sm" onClick={() => install.prompt().then(() => setInstall(null))}>
+                Install
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+
+      <SectionTitle title="Security" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <ListRow onClick={() => setPwOpen(true)} left={<RowIcon className="bg-surface-3 text-ink-2"><KeyRound className="size-[18px]" /></RowIcon>} title="Change password" chevron />
+        <div className="border-t border-line" />
+        <ListRow onClick={signOut} left={<RowIcon className="bg-neg/10 text-neg"><LogOut className="size-[18px]" /></RowIcon>} title={<span className="text-neg">Sign out</span>} />
+      </div>
+
+      <p className="mt-8 text-center text-[12px] text-ink-3">Kosh 0.1 · Open source · Your data lives on your server</p>
+
+      <Sheet open={pwOpen} onOpenChange={setPwOpen} title="Change password" description="Other devices will be signed out.">
+        {pwOpen && <PasswordForm onDone={() => setPwOpen(false)} />}
+      </Sheet>
+    </div>
+  )
+}
+
+function RowIcon({ className, children }: { className?: string; children: ReactNode }) {
+  return <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', className)}>{children}</span>
+}
+
+function PasswordForm({ onDone }: { onDone: () => void }) {
+  const update = useUpdateMe()
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  return (
+    <div className="space-y-4">
+      <Field label="Current password">
+        <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+      </Field>
+      <Field label="New password" hint="At least 8 characters">
+        <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+      </Field>
+      <Button
+        size="lg"
+        className="w-full"
+        loading={update.isPending}
+        onClick={() =>
+          update.mutate(
+            { currentPassword: current, newPassword: next },
+            {
+              onSuccess: () => {
+                toast.success('Password changed')
+                onDone()
+              },
+            },
+          )
+        }
+      >
+        Change password
+      </Button>
+    </div>
+  )
+}

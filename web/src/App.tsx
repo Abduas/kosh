@@ -1,0 +1,249 @@
+import { useQuery } from '@tanstack/react-query'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { ChartPie, House, ListOrdered, Plus, Users, Wallet, Target, Tag, Settings as SettingsIcon } from 'lucide-react'
+import { useEffect, type ReactNode } from 'react'
+import { Toaster } from 'sonner'
+import { Composer } from './components/Composer'
+import { cn } from './components/ui'
+import { api } from './lib/api'
+import { setCurrency } from './lib/format'
+import { haptic, useLook } from './lib/look'
+import { useBootstrap } from './lib/queries'
+import { linkHandler, match, navigate, useLocation } from './lib/router'
+import { openComposer } from './lib/store'
+import { AccountDetail, Accounts } from './screens/Accounts'
+import { Activity } from './screens/Activity'
+import { AuthScreen } from './screens/Auth'
+import { Budgets } from './screens/Budgets'
+import { Categories } from './screens/Categories'
+import { Home } from './screens/Home'
+import { Insights } from './screens/Insights'
+import { Onboarding } from './screens/Onboarding'
+import { People, PersonDetail } from './screens/People'
+import { Settings } from './screens/Settings'
+
+export function App() {
+  const status = useQuery({
+    queryKey: ['auth'],
+    queryFn: () => api<{ needsSetup: boolean; signedIn: boolean }>('GET', '/api/auth/status'),
+    staleTime: Infinity,
+    retry: 1,
+  })
+  // Wait until we know there's a session; offline, fall back to the cached copy.
+  const boot = useBootstrap(status.data?.signedIn === true || status.isError)
+
+  useEffect(() => {
+    const onSignedOut = () => status.refetch()
+    window.addEventListener('kosh:signed-out', onSignedOut)
+    return () => window.removeEventListener('kosh:signed-out', onSignedOut)
+  }, [status])
+
+  const prefs = boot.data?.user.prefs
+  useLook(prefs)
+  setCurrency(prefs?.currency)
+
+  let content: ReactNode
+  if (status.data && !status.data.signedIn) {
+    content = <AuthScreen mode={status.data.needsSetup ? 'setup' : 'login'} onDone={() => status.refetch().then(() => boot.refetch())} />
+  } else if (boot.data) {
+    content = prefs?.onboarded ? <Shell /> : <Onboarding />
+  } else if (status.isError || boot.isError) {
+    content = (
+      <div className="grid min-h-dvh place-items-center p-8 text-center">
+        <div>
+          <p className="text-[17px] font-semibold">Can't reach Kosh</p>
+          <p className="mt-1 text-[14px] text-ink-2">Check your connection, then try again.</p>
+          <button onClick={() => { status.refetch(); boot.refetch() }} className="press mt-5 h-11 rounded-2xl bg-accent px-5 font-semibold text-white">
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  } else {
+    content = <Splash />
+  }
+
+  return (
+    <MotionConfig reducedMotion="user">
+      {content}
+      <Toaster
+        position="top-center"
+        offset={16}
+        toastOptions={{
+          classNames: {
+            toast: '!rounded-2xl !border-0 !bg-ink !text-bg !shadow-float !font-sans !text-[14px] !font-medium',
+            actionButton: '!rounded-full !bg-accent !text-white !font-semibold !px-3',
+          },
+        }}
+      />
+    </MotionConfig>
+  )
+}
+
+function Splash() {
+  return (
+    <div className="grid min-h-dvh place-items-center">
+      <motion.img src="/icon.svg" alt="" className="size-16" animate={{ scale: [1, 1.06, 1] }} transition={{ repeat: Infinity, duration: 1.4 }} />
+    </div>
+  )
+}
+
+const tabs = [
+  { to: '/', label: 'Home', icon: House },
+  { to: '/activity', label: 'Activity', icon: ListOrdered },
+  { to: '/people', label: 'People', icon: Users },
+  { to: '/insights', label: 'Insights', icon: ChartPie },
+]
+
+const sideLinks = [
+  ...tabs,
+  { to: '/accounts', label: 'Accounts', icon: Wallet },
+  { to: '/budgets', label: 'Budgets', icon: Target },
+  { to: '/categories', label: 'Categories', icon: Tag },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon },
+]
+
+function isActive(to: string, path: string) {
+  return to === '/' ? path === '/' : path === to || path.startsWith(to + '/')
+}
+
+function Shell() {
+  const { path, search } = useLocation()
+
+  // Home-screen shortcuts open the composer: /?add=expense, /people?add=lend
+  useEffect(() => {
+    const add = search.get('add')
+    if (add === 'expense' || add === 'income' || add === 'lend' || add === 'transfer') {
+      openComposer({ kind: add })
+      navigate(path, { replace: true })
+    }
+  }, [search, path])
+
+  // Desktop shortcuts: N for new, / for search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest('input, textarea, [contenteditable], [role="dialog"]') || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'n') {
+        e.preventDefault()
+        openComposer()
+      } else if (e.key === '/') {
+        e.preventDefault()
+        navigate('/activity?focus=1')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  let screen: ReactNode
+  let params: Record<string, string> | null
+  if (path === '/') screen = <Home />
+  else if (path === '/activity') screen = <Activity />
+  else if (path === '/insights') screen = <Insights />
+  else if (path === '/people') screen = <People />
+  else if ((params = match('/people/:id', path))) screen = <PersonDetail id={Number(params.id)} />
+  else if (path === '/accounts') screen = <Accounts />
+  else if ((params = match('/accounts/:id', path))) screen = <AccountDetail id={Number(params.id)} />
+  else if (path === '/budgets') screen = <Budgets />
+  else if (path === '/categories') screen = <Categories />
+  else if (path === '/settings') screen = <Settings />
+  else screen = <Home />
+
+  return (
+    <div className="min-h-dvh md:flex">
+      {/* Desktop sidebar */}
+      <aside className="sticky top-0 hidden h-dvh w-[248px] shrink-0 flex-col border-r border-line px-4 py-6 md:flex">
+        <a href="/" onClick={linkHandler('/')} className="mb-8 flex items-center gap-2.5 px-2">
+          <img src="/icon.svg" alt="" className="size-8" />
+          <span className="text-[19px] font-bold tracking-tight">Kosh</span>
+        </a>
+        <button
+          onClick={() => openComposer()}
+          className="press mb-6 flex h-11 items-center justify-center gap-2 rounded-2xl bg-accent font-semibold text-white shadow-[0_10px_30px_-12px_var(--accent)]"
+        >
+          <Plus className="size-5" strokeWidth={2.5} /> New transaction
+          <kbd className="ml-1 rounded-md bg-white/20 px-1.5 text-[11px] font-semibold">N</kbd>
+        </button>
+        <nav className="space-y-0.5">
+          {sideLinks.map((l) => {
+            const active = isActive(l.to, path)
+            return (
+              <a
+                key={l.to}
+                href={l.to}
+                onClick={linkHandler(l.to)}
+                className={cn('relative flex h-10 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors', active ? 'text-ink' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}
+              >
+                {active && <motion.span layoutId="side-active" className="absolute inset-0 rounded-xl bg-surface shadow-card" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
+                <l.icon className="relative size-[18px]" strokeWidth={active ? 2.3 : 2} />
+                <span className="relative">{l.label}</span>
+              </a>
+            )
+          })}
+        </nav>
+      </aside>
+
+      <main className="mx-auto w-full max-w-[720px] px-4 pb-36 pt-[max(env(safe-area-inset-top),12px)] md:px-8 md:pb-16 md:pt-8">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={path}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {screen}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      <TabBar path={path} />
+      <Composer />
+    </div>
+  )
+}
+
+function TabBar({ path }: { path: string }) {
+  const left = tabs.slice(0, 2)
+  const right = tabs.slice(2)
+  const item = (t: (typeof tabs)[number]) => {
+    const active = isActive(t.to, path)
+    return (
+      <a
+        key={t.to}
+        href={t.to}
+        onClick={(e) => {
+          haptic(5)
+          linkHandler(t.to)(e)
+        }}
+        className={cn('relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition-colors', active ? 'text-ink' : 'text-ink-3')}
+      >
+        {active && <motion.span layoutId="tab-active" className="absolute inset-x-1.5 inset-y-1 rounded-[18px] bg-surface-3/70" transition={{ type: 'spring', stiffness: 550, damping: 40 }} />}
+        <t.icon className="relative size-[21px]" strokeWidth={active ? 2.4 : 2} />
+        <span className="relative">{t.label}</span>
+      </a>
+    )
+  }
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[max(env(safe-area-inset-bottom),12px)] md:hidden">
+      <div className="mx-auto flex max-w-[480px] items-center rounded-[26px] border border-line bg-surface/80 px-1.5 shadow-[0_16px_40px_-16px_rgb(0_0_0/0.35)] backdrop-blur-2xl backdrop-saturate-150">
+        {left.map(item)}
+        <div className="flex w-[72px] shrink-0 justify-center">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => {
+              haptic(10)
+              openComposer()
+            }}
+            aria-label="Add transaction"
+            className="-mt-7 grid size-[60px] place-items-center rounded-[22px] bg-accent text-white shadow-[0_14px_30px_-10px_var(--accent)] ring-[5px] ring-bg"
+          >
+            <Plus className="size-7" strokeWidth={2.6} />
+          </motion.button>
+        </div>
+        {right.map(item)}
+      </div>
+    </nav>
+  )
+}
