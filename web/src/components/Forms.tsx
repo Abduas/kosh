@@ -407,24 +407,24 @@ function PersonForm({ person, onDone }: { person?: Person; onDone: (p?: Person) 
       <div className="flex flex-col items-center gap-2 py-2">
         <Avatar name={name || '?'} color={color} size={72} />
       </div>
-      {contactsApi ? (
+      {contactsApi && (
         <Button type="button" variant="secondary" className="w-full" loading={importing} icon={<BookUser className="size-[18px]" />} onClick={fromContacts}>
-          {person ? 'Fill from contacts' : 'Choose from contacts'}
+          {person ? 'Fill from contacts' : platform === 'ios' ? 'Browse contacts' : 'Choose from contacts'}
         </Button>
-      ) : (
-        platform === 'ios' &&
-        !person && (
-          <p className="rounded-2xl bg-surface-2 px-4 py-3 text-[13px] text-ink-2">
-            <BookUser className="mr-1.5 inline size-4 align-[-3px] text-accent" />
-            To pick people from your contacts, turn on <span className="font-semibold text-ink">Settings → Apps → Safari → Advanced → Feature Flags → Contact Picker API</span>, then reopen Kosh.
-          </p>
-        )
+      )}
+      {platform === 'ios' && !person && (
+        // Safari's contact list for web apps has no search; iPhone's own
+        // AutoFill Contact does, and fills name and phone together.
+        <p className="rounded-2xl bg-surface-2 px-4 py-3 text-[13px] text-ink-2">
+          <BookUser className="mr-1.5 inline size-4 align-[-3px] text-accent" />
+          <span className="font-semibold text-ink">Search your contacts:</span> tap Name, then <span className="font-semibold text-ink">AutoFill Contact</span> above the keyboard. Or tap Name again and choose <span className="font-semibold text-ink">AutoFill → Contact</span>.
+        </p>
       )}
       <Field label="Name">
-        <TextInput autoFocus={!person && !isTouch} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul" maxLength={50} autoComplete="off" enterKeyHint="next" />
+        <TextInput autoFocus={!person && !isTouch} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul" maxLength={50} name="name" autoComplete="name" enterKeyHint="next" />
       </Field>
       <Field label="Phone" hint="Used to send payment reminders on WhatsApp">
-        <TextInput type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="+91 98765 43210" maxLength={20} autoComplete="off" />
+        <TextInput type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="+91 98765 43210" maxLength={20} name="tel" autoComplete="tel" />
       </Field>
       <Field label="Note">
         <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. College friend" maxLength={200} autoComplete="off" enterKeyHint="done" />
