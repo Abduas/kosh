@@ -24,7 +24,7 @@ export function Amount({
   const hidden = privacy.use((s) => s.hidden)
   const t = tone === 'auto' ? (value > 0 ? 'pos' : value < 0 ? 'neg' : 'none') : tone
   return (
-    <span className={cn('tnum whitespace-nowrap', t === 'pos' && 'text-pos', t === 'neg' && 'text-neg', hidden && 'privacy-blur select-none', className)}>
+    <span className={cn('font-rounded tnum whitespace-nowrap', t === 'pos' && 'text-pos', t === 'neg' && 'text-neg', hidden && 'privacy-blur select-none', className)}>
       {money(value, { sign, compact })}
     </span>
   )
@@ -51,7 +51,7 @@ export function BigAmount({ value, className, fractionClassName }: { value: numb
 
   const p = moneyParts(shown)
   return (
-    <span className={cn('tnum inline-flex items-baseline whitespace-nowrap', hidden && 'privacy-blur select-none', className)}>
+    <span className={cn('font-rounded tnum inline-flex items-baseline whitespace-nowrap', hidden && 'privacy-blur select-none', className)}>
       {p.negative && <span>−</span>}
       <span className="mr-0.5 text-[0.55em] font-semibold opacity-80">{p.symbol}</span>
       <span>{p.whole}</span>

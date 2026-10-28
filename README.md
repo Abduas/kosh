@@ -60,7 +60,7 @@ It's also built to deploy on [Sideyard](https://rabeeh-ta.github.io/sideyard/): 
 | `api_test.go` | End-to-end API tests (`go test ./...`) |
 | `web/src/components/Composer.tsx` | The add/edit transaction sheet and keypad (and the pay sheet after a scan) |
 | `web/src/components/Scanner.tsx`, `web/src/lib/upi.ts` | QR scanner, UPI QR parsing, links that open UPI apps |
-| `web/src/screens/` | Home, Activity, People, Insights, Accounts, Budgets, Settings |
+| `web/src/screens/` | Home (your log; the list itself is in Activity.tsx), Accounts, People, Insights, Budgets, Settings |
 
 Money is stored as integers in minor units (paise). Each transaction has a kind that decides
 which balances it moves: `expense`, `income`, `transfer`, `lend`, `borrow`, `collect` (they paid you back)

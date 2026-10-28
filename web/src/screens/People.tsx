@@ -13,7 +13,6 @@ import { useData, useTransactions } from '../lib/queries'
 import { navigate } from '../lib/router'
 import { openComposer } from '../lib/store'
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 type Filter = 'all' | 'owe-you' | 'you-owe' | 'settled'
 
@@ -41,43 +40,38 @@ export function People() {
     <div>
       <ScreenHeader
         title="People"
-        subtitle="Money you lend and borrow"
         actions={
-          <IconButton label="Add person" onClick={() => setAdding(true)} className="bg-surface shadow-card">
+          <IconButton label="Add person" onClick={() => setAdding(true)} className="bg-surface">
             <UserPlus className="size-[19px]" />
           </IconButton>
         }
       />
 
-      <div className="grid grid-cols-2 gap-3">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-[24px] bg-surface p-4 shadow-card">
-          <div className="pointer-events-none absolute -right-6 -top-8 size-24 rounded-full bg-pos opacity-20 blur-2xl" />
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-ink-3">You'll get</p>
-          <div className="mt-1 text-[26px] font-bold tracking-[-0.03em] text-pos">
+      <div className="grid grid-cols-2 gap-3 pb-1 pt-1 text-center">
+        <div>
+          <p className="text-[13px] font-medium text-ink-3">You'll get</p>
+          <div className="mt-1 font-rounded text-[32px] font-medium leading-tight tracking-[-0.02em] text-pos">
             <BigAmount value={d.owedToMe} />
           </div>
-          <p className="text-[12px] font-medium text-ink-3">{plural(d.people.filter((p) => p.balance > 0).length, 'person', 'people')}</p>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="relative overflow-hidden rounded-[24px] bg-surface p-4 shadow-card">
-          <div className="pointer-events-none absolute -right-6 -top-8 size-24 rounded-full bg-neg opacity-15 blur-2xl" />
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-ink-3">You owe</p>
-          <div className={cn('mt-1 text-[26px] font-bold tracking-[-0.03em]', d.iOwe > 0 ? 'text-neg' : 'text-ink-3')}>
+        </div>
+        <div className="border-l border-line">
+          <p className="text-[13px] font-medium text-ink-3">You owe</p>
+          <div className={cn('mt-1 font-rounded text-[32px] font-medium leading-tight tracking-[-0.02em]', d.iOwe > 0 ? 'text-neg' : 'text-ink-3')}>
             <BigAmount value={d.iOwe} />
           </div>
-          <p className="text-[12px] font-medium text-ink-3">{plural(d.people.filter((p) => p.balance < 0).length, 'person', 'people')}</p>
-        </motion.div>
+        </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <Button variant="secondary" icon={<HandCoins className="size-[18px] text-lend" />} onClick={() => openComposer({ kind: 'lend' })}>
-          Lend money
-        </Button>
-        <Button variant="secondary" icon={<Plus className="size-[18px] text-pos" />} onClick={() => openComposer({ kind: 'borrow' })}>
-          Borrow money
-        </Button>
+      <div className="mt-5 flex justify-center gap-2">
+        <button onClick={() => openComposer({ kind: 'lend' })} className="press flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-[14px] font-semibold">
+          <HandCoins className="size-4 text-lend" /> Lend
+        </button>
+        <button onClick={() => openComposer({ kind: 'borrow' })} className="press flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-[14px] font-semibold">
+          <Plus className="size-4 text-pos" /> Borrow
+        </button>
       </div>
 
-      {d.people.length > 0 && (
+      {d.people.filter((p) => !p.archived).length > 5 && (
         <Segmented
           id="people-filter"
           size="sm"
@@ -93,7 +87,7 @@ export function People() {
         />
       )}
 
-      <div className="mt-3">
+      <div className="mt-5">
         {d.people.length === 0 ? (
           <Card>
             <EmptyState

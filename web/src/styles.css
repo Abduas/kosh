@@ -20,21 +20,22 @@
   --color-warn: var(--warn);
   --color-lend: var(--lend);
 
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.08);
+  /* Flat, like iOS: groups are told apart by a light fill, not shadows. */
+  --shadow-card: 0 0 #0000;
   --shadow-float: 0 10px 40px -10px rgb(0 0 0 / 0.35);
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root {
-  --bg: #f2f2f5;
-  --surface: #ffffff;
-  --surface-2: #f5f5f8;
-  --surface-3: #e9e9ef;
+  --bg: #ffffff;
+  --surface: #f4f4f7;
+  --surface-2: #ebebf0;
+  --surface-3: #dfdfe6;
   --ink: #0c0c10;
   --ink-2: #5d5d6a;
   --ink-3: #9b9ba7;
-  --line: rgb(12 12 16 / 0.07);
+  --line: rgb(12 12 16 / 0.08);
   --accent: #7c5cff;
   --pos: #12a150;
   --neg: #e5484d;
@@ -44,10 +45,10 @@
 }
 
 .dark {
-  --bg: #09090b;
-  --surface: #131316;
-  --surface-2: #1a1a1f;
-  --surface-3: #25252c;
+  --bg: #000000;
+  --surface: #121215;
+  --surface-2: #1c1c21;
+  --surface-3: #27272e;
   --ink: #f4f4f6;
   --ink-2: #a3a3ae;
   --ink-3: #686874;
@@ -56,7 +57,7 @@
   --neg: #ff6b6b;
   --warn: #fbbf24;
   --lend: #38bdf8;
-  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow-card: 0 0 #0000;
   color-scheme: dark;
 }
 
@@ -117,6 +118,11 @@
     outline-offset: 2px;
     border-radius: 10px;
   }
+}
+
+/* Amounts: SF Pro Rounded on Apple devices (as iOS finance apps use), Inter elsewhere. */
+@utility font-rounded {
+  font-family: ui-rounded, 'SF Pro Rounded', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
 @utility tnum {

@@ -113,7 +113,7 @@ export function Composer() {
     <Drawer.Root open={open} onOpenChange={(o) => !o && closeComposer()} repositionInputs={false}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[3px]" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[96dvh] w-full max-w-[480px] flex-col rounded-t-[32px] bg-surface shadow-float outline-none md:bottom-4 md:rounded-[32px] md:after:hidden!">
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[96dvh] w-full max-w-[480px] flex-col rounded-t-[32px] bg-bg shadow-float dark:border-t dark:border-white/10 outline-none md:bottom-4 md:rounded-[32px] md:after:hidden!">
           <Drawer.Title className="sr-only">{editing ? 'Edit transaction' : 'Add transaction'}</Drawer.Title>
           <Drawer.Description className="sr-only">Enter an amount and details</Drawer.Description>
           <div className="mx-auto mt-2.5 h-[5px] w-10 shrink-0 rounded-full bg-ink/15" />
@@ -485,7 +485,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
               ''
             )}
           </div>
-          <div className={cn('flex items-baseline justify-center font-bold tracking-[-0.04em] tnum', amountTone)}>
+          <div className={cn('flex items-baseline justify-center font-rounded font-medium tracking-[-0.02em] tnum', amountTone)}>
             <span className="mr-1 text-[30px] font-semibold opacity-60">{currencySymbol()}</span>
             <span className={cn('transition-[font-size] duration-200', (hasOp ? String(result ?? 0) : expr).length > 9 ? 'text-[44px]' : 'text-[58px]', !expr && 'text-ink-3/50')}>
               {hasOp ? groupDigits(String(result ?? 0)) : expr ? groupDigits(expr) : '0'}
@@ -801,7 +801,7 @@ function Keypad({ onKey, onClear }: { onKey: (k: string) => void; onClear: () =>
   const keys = ['1', '2', '3', '+', '4', '5', '6', '−', '7', '8', '9', '×', '.', '0', 'back', '÷']
   const holdTimer = useRef<number | undefined>(undefined)
   return (
-    <div className="grid h-full grid-cols-4 gap-2 pb-1">
+    <div className="grid h-full grid-cols-[1fr_1fr_1fr_0.62fr] gap-2 pb-1">
       {keys.map((k) => {
         const op = isOp(k)
         return (
@@ -816,7 +816,7 @@ function Keypad({ onKey, onClear }: { onKey: (k: string) => void; onClear: () =>
             aria-label={k === 'back' ? 'Backspace (hold to clear)' : k}
             className={cn(
               'grid select-none place-items-center rounded-[18px] text-[26px] font-medium tracking-tight transition-colors',
-              op ? 'bg-accent/10 text-[24px] text-accent active:bg-accent/20' : 'bg-surface-2 text-ink active:bg-surface-3',
+              op ? 'text-[24px] text-ink-3 active:bg-surface-2' : 'bg-surface text-ink active:bg-surface-3',
             )}
           >
             {k === 'back' ? <Delete className="size-6" /> : k}

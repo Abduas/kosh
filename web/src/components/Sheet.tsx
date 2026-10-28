@@ -34,7 +34,7 @@ export function Sheet({
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/45 backdrop-blur-[3px]" />
         <Drawer.Content
           className={cn(
-            'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[94dvh] w-full max-w-[560px] flex-col rounded-t-[30px] bg-surface shadow-float outline-none md:bottom-4 md:rounded-[30px] md:after:hidden!',
+            'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[94dvh] w-full max-w-[560px] flex-col rounded-t-[30px] bg-bg shadow-float dark:border-t dark:border-white/10 outline-none md:bottom-4 md:rounded-[30px] md:after:hidden!',
             className,
           )}
         >

@@ -45,7 +45,7 @@ export function TxAmount({ t, accountId, className }: { t: Transaction; accountI
       value={value}
       sign={sign !== 0}
       tone={sign > 0 ? 'pos' : 'none'}
-      className={cn('text-[15px] font-semibold tracking-tight', person && sign < 0 && 'text-lend', sign === 0 && 'text-ink-2', className)}
+      className={cn('font-rounded text-[16px] font-semibold tracking-tight', person && sign < 0 && 'text-lend', sign === 0 && 'text-ink-2', className)}
     />
   )
 }
@@ -74,14 +74,14 @@ export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: 
   }
 
   return (
-    <div className="relative overflow-hidden">
+    <div className="relative overflow-hidden rounded-2xl">
       <motion.button
         style={{ opacity: reveal }}
         onClick={() => {
           haptic(12)
           del.mutate(t)
         }}
-        className="absolute inset-y-0 right-0 flex w-[88px] flex-col items-center justify-center gap-0.5 bg-neg text-[12px] font-semibold text-white"
+        className="absolute inset-y-0 right-0 flex w-[88px] flex-col items-center justify-center gap-0.5 rounded-2xl bg-neg text-[12px] font-semibold text-white"
         aria-label="Delete transaction"
       >
         <Trash2 className="size-5" />
@@ -104,11 +104,11 @@ export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: 
             settle(0)
           } else editTransaction(t)
         }}
-        className="relative flex cursor-pointer items-center gap-3 bg-surface px-4 py-3 transition-colors hover:bg-surface-2/50"
+        className="relative flex cursor-pointer items-center gap-3.5 bg-bg px-1 py-2.5 transition-colors hover:bg-surface/60"
       >
         <TxIcon t={t} d={d} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-medium tracking-tight">{title}</div>
+          <div className="truncate text-[16px] font-medium tracking-tight">{title}</div>
           <div className="truncate text-[13px] text-ink-3">{showDate ? `${dayLabel(t.occurredAt.slice(0, 10))} · ${subtitle}` : subtitle}</div>
         </div>
         <div className="flex flex-col items-end">
@@ -165,19 +165,16 @@ export function TxList({
   if (items.length === 0) return <>{empty}</>
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {groups.map((g) => (
         <section key={g.day}>
-          <div className={cn(stickyHeaders && "sticky top-0 z-10", "-mx-1 mb-1.5 flex items-center justify-between bg-bg/85 px-2 py-1.5 backdrop-blur-xl")}>
-            <h3 className="text-[13px] font-semibold text-ink-2">{dayLabel(g.day)}</h3>
-            {g.net !== 0 && <Amount value={g.net} sign tone={g.net > 0 ? 'pos' : 'none'} className="text-[12px] font-semibold text-ink-3" />}
+          <div className={cn(stickyHeaders && 'sticky top-0 z-10', 'mb-1 flex items-center justify-between border-b border-line bg-bg/90 px-1 pb-1.5 pt-1 backdrop-blur-xl')}>
+            <h3 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-ink-3">{dayLabel(g.day)}</h3>
+            {g.net !== 0 && <Amount value={g.net} sign tone={g.net > 0 ? 'pos' : 'none'} className="font-rounded text-[12px] font-semibold text-ink-3" />}
           </div>
-          <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
-            {g.items.map((t, i) => (
-              <div key={t.id}>
-                {i > 0 && <div className="ml-[70px] h-px bg-line" />}
-                <TxRow t={t} accountId={accountId} />
-              </div>
+          <div>
+            {g.items.map((t) => (
+              <TxRow key={t.id} t={t} accountId={accountId} />
             ))}
           </div>
         </section>

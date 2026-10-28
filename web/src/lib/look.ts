@@ -28,7 +28,7 @@ export function useLook(prefs: Prefs | undefined) {
     const apply = () => {
       const dark = theme === 'dark' || (theme === 'system' && mq.matches)
       document.documentElement.classList.toggle('dark', dark)
-      document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#09090B' : '#F2F2F5'))
+      document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#000000' : '#FFFFFF'))
     }
     apply()
     document.documentElement.style.setProperty('--accent', accentHex)

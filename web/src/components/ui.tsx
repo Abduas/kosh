@@ -97,7 +97,7 @@ export function ScreenHeader({ title, subtitle, back, actions }: { title: ReactN
           <div className="flex items-center gap-1">{actions}</div>
         </div>
       )}
-      <h1 className="text-[32px] font-bold leading-tight tracking-[-0.03em]">{title}</h1>
+      <h1 className="text-[30px] font-bold leading-tight tracking-[-0.03em]">{title}</h1>
       {subtitle && <p className="mt-0.5 text-[15px] text-ink-2">{subtitle}</p>}
     </header>
   )

@@ -34,30 +34,24 @@ export function Accounts() {
     <div>
       <ScreenHeader
         title="Accounts"
-        back="/"
         actions={
-          <IconButton label="Add account" onClick={() => setAdding(true)} className="bg-surface shadow-card">
+          <IconButton label="Add account" onClick={() => setAdding(true)} className="bg-surface">
             <Plus className="size-5" />
           </IconButton>
         }
       />
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="hero-surface rounded-[28px] p-5">
-        <p className="text-[13px] font-semibold text-white/75">Net worth</p>
-        <div className="mt-1 text-[40px] font-bold leading-none tracking-[-0.04em]">
+      <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center pb-4 pt-1 text-center">
+        <p className="rounded-full bg-surface px-3 py-1 text-[13px] font-medium text-ink-2">Total balance</p>
+        <div className="mt-3 font-rounded text-[48px] font-medium leading-none tracking-[-0.02em]">
           <BigAmount value={d.totalBalance} />
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <div className="rounded-2xl bg-white/12 px-3 py-2.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/65">You have</p>
-            <Amount value={assets} className="text-[16px] font-bold text-white" />
-          </div>
-          <div className="rounded-2xl bg-white/12 px-3 py-2.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/65">Cards owe</p>
-            <Amount value={Math.abs(cardsOwe)} className="text-[16px] font-bold text-white" />
-          </div>
-        </div>
-      </motion.div>
+        {cardsOwe < 0 && (
+          <p className="mt-3 text-[14px] font-medium text-ink-3">
+            <Amount value={assets} /> in accounts <span className="mx-1 opacity-50">|</span> <Amount value={Math.abs(cardsOwe)} className="text-neg" /> on cards
+          </p>
+        )}
+      </motion.section>
 
       {active.length === 0 && (
         <Card className="mt-6">

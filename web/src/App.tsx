@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { ChartPie, House, ListOrdered, Plus, Users, Wallet, Target, Tag, Settings as SettingsIcon } from 'lucide-react'
+import { ChartPie, House, Plus, Users, Wallet, Target, Tag, Settings as SettingsIcon } from 'lucide-react'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { Toaster } from 'sonner'
 import { Composer } from './components/Composer'
@@ -14,7 +14,6 @@ import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib
 import { closeScanner, composer, openComposer, openScanner, scanner } from './lib/store'
 import { launchScanEnabled, readPending } from './lib/upi'
 import { AccountDetail, Accounts } from './screens/Accounts'
-import { Activity } from './screens/Activity'
 import { AuthScreen } from './screens/Auth'
 import { Budgets } from './screens/Budgets'
 import { Categories } from './screens/Categories'
@@ -70,7 +69,9 @@ export function App() {
       {content}
       <Toaster
         position="top-center"
-        offset={16}
+        // Below the notch and status bar: the installed app draws under them.
+        offset={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}
+        mobileOffset={{ top: 'calc(env(safe-area-inset-top) + 8px)', left: 12, right: 12 }}
         toastOptions={{
           classNames: {
             toast: '!rounded-2xl !border-0 !bg-ink !text-bg !shadow-float !font-sans !text-[14px] !font-medium',
@@ -110,21 +111,20 @@ function Splash() {
 
 const tabs = [
   { to: '/', label: 'Home', icon: House },
-  { to: '/activity', label: 'Activity', icon: ListOrdered },
+  { to: '/accounts', label: 'Accounts', icon: Wallet },
   { to: '/people', label: 'People', icon: Users },
   { to: '/insights', label: 'Insights', icon: ChartPie },
 ]
 
 const sideLinks = [
   ...tabs,
-  { to: '/accounts', label: 'Accounts', icon: Wallet },
   { to: '/budgets', label: 'Budgets', icon: Target },
   { to: '/categories', label: 'Categories', icon: Tag },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
 function isActive(to: string, path: string) {
-  return to === '/' ? path === '/' : path === to || path.startsWith(to + '/')
+  return to === '/' ? path === '/' || path === '/activity' : path === to || path.startsWith(to + '/')
 }
 
 function Shell() {
@@ -181,7 +181,7 @@ function Shell() {
   let screen: ReactNode
   let params: Record<string, string> | null
   if (path === '/') screen = <Home />
-  else if (path === '/activity') screen = <Activity />
+  else if (path === '/activity') screen = <Home />
   else if (path === '/insights') screen = <Insights />
   else if (path === '/people') screen = <People />
   else if ((params = match('/people/:id', path))) screen = <PersonDetail id={Number(params.id)} />
@@ -257,33 +257,34 @@ function TabBar({ path }: { path: string }) {
       <a
         key={t.to}
         href={t.to}
+        aria-label={t.label}
+        aria-current={active ? 'page' : undefined}
         onClick={(e) => {
           haptic(5)
           linkHandler(t.to)(e)
         }}
-        className={cn('relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition-colors', active ? 'text-ink' : 'text-ink-3')}
+        className={cn('press grid h-12 flex-1 place-items-center transition-colors', active ? 'text-ink' : 'text-ink-3/70')}
       >
-        {active && <motion.span layoutId="tab-active" className="absolute inset-x-1.5 inset-y-1 rounded-[18px] bg-surface-3/70" transition={{ type: 'spring', stiffness: 550, damping: 40 }} />}
-        <t.icon className="relative size-[21px]" strokeWidth={active ? 2.4 : 2} />
-        <span className="relative">{t.label}</span>
+        <t.icon className="size-[24px]" strokeWidth={active ? 2.4 : 2} />
       </a>
     )
   }
+  // Icons only, with the add button in the middle, like iOS finance apps.
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[max(env(safe-area-inset-bottom),12px)] md:hidden">
-      <div className="mx-auto flex max-w-[480px] items-center rounded-[26px] border border-line bg-surface/80 px-1.5 shadow-[0_16px_40px_-16px_rgb(0_0_0/0.35)] backdrop-blur-2xl backdrop-saturate-150">
+    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/90 pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 backdrop-blur-2xl backdrop-saturate-150 md:hidden">
+      <div className="mx-auto flex max-w-[480px] items-center px-3">
         {left.map(item)}
-        <div className="flex w-[72px] shrink-0 justify-center">
+        <div className="flex flex-1 justify-center">
           <motion.button
-            whileTap={{ scale: 0.9 }}
+            whileTap={{ scale: 0.92 }}
             onClick={() => {
               haptic(10)
               openComposer()
             }}
             aria-label="Add transaction"
-            className="-mt-7 grid size-[60px] place-items-center rounded-[22px] bg-accent text-white shadow-[0_14px_30px_-10px_var(--accent)] ring-[5px] ring-bg"
+            className="grid h-[42px] w-[64px] place-items-center rounded-[14px] bg-ink text-bg"
           >
-            <Plus className="size-7" strokeWidth={2.6} />
+            <Plus className="size-6" strokeWidth={2.6} />
           </motion.button>
         </div>
         {right.map(item)}
