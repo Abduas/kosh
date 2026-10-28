@@ -1,4 +1,7 @@
 import type { TxInput } from './api'
+import { platform } from './device'
+
+export { platform }
 
 // Reading UPI QR codes and handing the payment to a UPI app.
 //
@@ -121,15 +124,6 @@ function parseBharatQR(raw: string): UpiTarget | null {
 
 // ---- Opening a UPI app ----
 
-export type Platform = 'ios' | 'android' | 'other'
-
-export const platform: Platform = (() => {
-  if (typeof navigator === 'undefined') return 'other'
-  const ua = navigator.userAgent
-  if (/iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'ios'
-  if (/Android/i.test(ua)) return 'android'
-  return 'other'
-})()
 
 export type UpiApp = { id: string; name: string; short: string; prefix: string; color: string }
 

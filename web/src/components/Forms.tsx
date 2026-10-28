@@ -1,8 +1,9 @@
-import { Archive, ArchiveRestore, Check, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, BookUser, Check, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import type { Account, AccountKind, Category, Person } from '../lib/api'
 import { currencySymbol, parseMoney } from '../lib/format'
+import { contactsApi, isTouch, pickContacts, platform } from '../lib/device'
 import { palette } from '../lib/look'
 import { useDeleteEntity, useSaveEntity } from '../lib/queries'
 import { Sheet } from './Sheet'
@@ -359,40 +360,96 @@ function PersonForm({ person, onDone }: { person?: Person; onDone: (p?: Person) 
   const [phone, setPhone] = useState(person?.phone ?? '')
   const [note, setNote] = useState(person?.note ?? '')
   const [color, setColor] = useState(person?.color ?? palette[Math.floor(Math.random() * palette.length)])
+  const [importing, setImporting] = useState(false)
+
+  const submit = () => save.mutate({ id: person?.id, body: { name, phone, note, color } }, { onSuccess: (p) => onDone(p) })
+
+  // One contact fills the form; several are added straight away.
+  const fromContacts = async () => {
+    let picked
+    try {
+      picked = await pickContacts(!person)
+    } catch {
+      return toast.error("Couldn't open your contacts")
+    }
+    if (picked.length === 0) return
+    if (picked.length === 1 || person) {
+      if (picked[0].name) setName(picked[0].name)
+      if (picked[0].phone) setPhone(picked[0].phone)
+      return
+    }
+    setImporting(true)
+    let added = 0
+    let last: Person | undefined
+    for (const c of picked) {
+      try {
+        last = await save.mutateAsync({ body: { name: c.name || c.phone, phone: c.phone, color: palette[(added + 3) % palette.length] } })
+        added++
+      } catch {
+        // The error toast comes from the mutation; carry on with the rest.
+      }
+    }
+    setImporting(false)
+    if (added > 0) {
+      toast.success(`Added ${added} ${added === 1 ? 'person' : 'people'}`)
+      onDone(added === 1 ? last : undefined)
+    }
+  }
+
   return (
-    <div className="space-y-5">
+    <form
+      className="space-y-5"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
       <div className="flex flex-col items-center gap-2 py-2">
         <Avatar name={name || '?'} color={color} size={72} />
       </div>
+      {contactsApi ? (
+        <Button type="button" variant="secondary" className="w-full" loading={importing} icon={<BookUser className="size-[18px]" />} onClick={fromContacts}>
+          {person ? 'Fill from contacts' : 'Choose from contacts'}
+        </Button>
+      ) : (
+        platform === 'ios' &&
+        !person && (
+          <p className="rounded-2xl bg-surface-2 px-4 py-3 text-[13px] text-ink-2">
+            <BookUser className="mr-1.5 inline size-4 align-[-3px] text-accent" />
+            To pick people from your contacts, turn on <span className="font-semibold text-ink">Settings → Apps → Safari → Advanced → Feature Flags → Contact Picker API</span>, then reopen Kosh.
+          </p>
+        )
+      )}
       <Field label="Name">
-        <TextInput autoFocus={!person} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul" maxLength={50} />
+        <TextInput autoFocus={!person && !isTouch} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul" maxLength={50} autoComplete="off" enterKeyHint="next" />
       </Field>
       <Field label="Phone" hint="Used to send payment reminders on WhatsApp">
-        <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="+91 98765 43210" maxLength={20} />
+        <TextInput type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="+91 98765 43210" maxLength={20} autoComplete="off" />
       </Field>
       <Field label="Note">
-        <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. College friend" maxLength={200} />
+        <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. College friend" maxLength={200} autoComplete="off" enterKeyHint="done" />
       </Field>
       <Field label="Color">
         <ColorPicker value={color} onChange={setColor} />
       </Field>
-      <Button size="lg" className="w-full" loading={save.isPending} onClick={() => save.mutate({ id: person?.id, body: { name, phone, note, color } }, { onSuccess: (p) => onDone(p) })}>
+      <Button type="submit" size="lg" className="w-full" loading={save.isPending && !importing}>
         {person ? 'Save changes' : 'Add person'}
       </Button>
       {person && (
         <div className="grid grid-cols-2 gap-2">
           <Button
+            type="button"
             variant="secondary"
             icon={person.archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
             onClick={() => save.mutate({ id: person.id, body: { archived: !person.archived } }, { onSuccess: () => onDone() })}
           >
             {person.archived ? 'Unarchive' : 'Archive'}
           </Button>
-          <Button variant="danger" icon={<Trash2 className="size-4" />} disabled={person.txCount > 0} onClick={() => del.mutate(person.id, { onSuccess: () => onDone() })}>
+          <Button type="button" variant="danger" icon={<Trash2 className="size-4" />} disabled={person.txCount > 0} onClick={() => del.mutate(person.id, { onSuccess: () => onDone() })}>
             Delete
           </Button>
         </div>
       )}
-    </div>
+    </form>
   )
 }

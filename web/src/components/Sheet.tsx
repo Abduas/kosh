@@ -1,6 +1,7 @@
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { platform } from '../lib/device'
 import { useBackToClose } from '../lib/router'
 import { cn } from './ui'
 
@@ -26,7 +27,9 @@ export function Sheet({
 }) {
   useBackToClose(open && dismissible, () => onOpenChange(false))
   return (
-    <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false} dismissible={dismissible}>
+    // On iPhone the keyboard covers the page instead of resizing it, so the
+    // sheet moves up above it; Android resizes the page by itself.
+    <Drawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={platform === 'ios'} dismissible={dismissible}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/45 backdrop-blur-[3px]" />
         <Drawer.Content

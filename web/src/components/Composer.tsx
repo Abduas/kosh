@@ -8,6 +8,7 @@ import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, timeLabel,
 import { haptic, palette } from '../lib/look'
 import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
 import { payableAccounts } from '../lib/pay'
+import { isTouch } from '../lib/device'
 import { useBackToClose } from '../lib/router'
 import { closeComposer, composer, openScanner, type ComposerPreset } from '../lib/store'
 import { payLink, platform, preferredApp, readPending, rememberApp, upiApps, writePending, type UpiApp, type UpiTarget } from '../lib/upi'
@@ -1004,7 +1005,7 @@ function PersonPicker({
     <div className="flex h-full flex-col gap-2">
       <div className="flex gap-2">
         <input
-          autoFocus
+          autoFocus={!isTouch}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search or add a person"
