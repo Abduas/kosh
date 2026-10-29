@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Drawer } from 'vaul'
-import { ArrowRight, CalendarDays, Check, ChevronDown, Delete, LayoutGrid, Lock, Plus, ScanLine, Store, Trash2, TriangleAlert, Users, X } from 'lucide-react'
+import { AlignLeft, ArrowRight, CalendarDays, Check, Delete, LayoutGrid, LoaderCircle, Lock, Plus, ScanLine, Store, Trash2, TriangleAlert, UserRound, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { Account, Person, Transaction, TxInput, TxKind } from '../lib/api'
-import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, timeLabel, ymd } from '../lib/format'
+import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, ymd } from '../lib/format'
 import { haptic, palette } from '../lib/look'
 import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
 import { payableAccounts } from '../lib/pay'
@@ -390,6 +390,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   }, [press])
 
   const account = d.accountsById.get(accountId)
+  const category = categoryId ? d.categoriesById.get(categoryId) : undefined
   const toAccount = toAccountId ? d.accountsById.get(toAccountId) : undefined
   const person = personId ? d.peopleById.get(personId) : undefined
   const amountTone =
@@ -485,113 +486,82 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
               ''
             )}
           </div>
-          <div className={cn('flex items-baseline justify-center font-rounded font-medium tracking-[-0.02em] tnum', amountTone)}>
-            <span className="mr-1 text-[30px] font-semibold opacity-60">{currencySymbol()}</span>
-            <span className={cn('transition-[font-size] duration-200', (hasOp ? String(result ?? 0) : expr).length > 9 ? 'text-[44px]' : 'text-[58px]', !expr && 'text-ink-3/50')}>
-              {hasOp ? groupDigits(String(result ?? 0)) : expr ? groupDigits(expr) : '0'}
-            </span>
+          <div className="relative flex w-full items-center justify-center">
+            <div className={cn('flex items-baseline justify-center font-rounded font-medium tracking-[-0.02em] tnum', amountTone)}>
+              <span className="mr-1 text-[30px] font-medium text-ink-3">{currencySymbol()}</span>
+              <span className={cn('transition-[font-size] duration-200', (hasOp ? String(result ?? 0) : expr).length > 9 ? 'text-[44px]' : 'text-[60px]', !expr && 'text-ink-3/50')}>
+                {hasOp ? groupDigits(String(result ?? 0)) : expr ? groupDigits(expr) : '0'}
+              </span>
+            </div>
+            {!upi && expr && <Backspace onKey={press} onClear={() => setExpr('')} className="absolute right-0" />}
           </div>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={280}
-            placeholder={mode === 'people' ? 'What was it for?' : 'Add a note'}
-            onFocus={(e) => upi && e.currentTarget.select()}
-            className="mt-1 w-full max-w-[300px] rounded-xl bg-transparent py-1.5 text-center text-[15px] font-medium outline-none placeholder:text-ink-3 focus:bg-surface-2"
-          />
+          <label className="mt-3 flex h-9 max-w-[280px] items-center gap-1.5 rounded-full bg-surface px-3.5 text-ink-3 focus-within:text-ink">
+            <AlignLeft className="size-4 shrink-0" />
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={280}
+              placeholder={mode === 'people' ? 'What was it for?' : 'Add a note'}
+              onFocus={(e) => upi && e.currentTarget.select()}
+              className="field-sizing-content min-w-[5.5em] max-w-[220px] bg-transparent text-[15px] font-medium text-ink outline-none placeholder:text-ink-3"
+            />
+          </label>
         </motion.div>
 
-        {/* Account, transfer target, date */}
-        <div className="no-scrollbar flex items-center gap-2 overflow-x-auto px-4 pb-3 pt-2">
-          <PickerChip active={panel === 'account'} shake={shake === 'account'} onClick={() => setPanel(panel === 'account' ? 'keypad' : 'account')}>
-            {account ? <Glyph icon={account.icon} color={account.color} size={22} /> : null}
-            <span className="max-w-[120px] truncate">{account?.name ?? 'Account'}</span>
-          </PickerChip>
-          {offerDefault && (
-            <button onClick={makeDefault} disabled={updateMe.isPending} className="press h-9 shrink-0 rounded-full bg-accent/12 px-3 text-[13px] font-semibold text-accent disabled:opacity-60">
-              Make default
-            </button>
-          )}
-          {upi && platform === 'ios' && (
-            <PickerChip active={panel === 'app'} onClick={() => setPanel(panel === 'app' ? 'keypad' : 'app')}>
-              <AppDot app={app} />
-              <span>{app.short}</span>
-            </PickerChip>
-          )}
-          {mode === 'transfer' && (
-            <>
-              <ArrowRight className="size-4 shrink-0 text-ink-3" />
-              <PickerChip active={panel === 'toAccount'} shake={shake === 'toAccount'} onClick={() => setPanel(panel === 'toAccount' ? 'keypad' : 'toAccount')}>
-                {toAccount ? <Glyph icon={toAccount.icon} color={toAccount.color} size={22} /> : null}
-                <span className="max-w-[120px] truncate">{toAccount?.name ?? 'To account'}</span>
-              </PickerChip>
-            </>
-          )}
-          {mode === 'people' && (
-            <PickerChip active={panel === 'person'} shake={shake === 'person'} onClick={() => setPanel(panel === 'person' ? 'keypad' : 'person')}>
-              {person ? <Avatar name={person.name} color={person.color} size={22} /> : <Plus className="size-4" />}
-              <span className="max-w-[120px] truncate">{person?.name ?? 'Person'}</span>
-            </PickerChip>
-          )}
-          <PickerChip active={panel === 'date'} onClick={() => setPanel(panel === 'date' ? 'keypad' : 'date')}>
-            <CalendarDays className="size-4" />
-            <span>{dayLabel(occurredAt.slice(0, 10))}</span>
-            <span className="text-ink-3">{timeLabel(occurredAt)}</span>
-          </PickerChip>
-          {canSplit && (
-            <PickerChip active={panel === 'split' || splitting} onClick={() => setPanel(panel === 'split' ? 'keypad' : 'split')}>
-              <Users className="size-4" />
-              <span>{splitting ? `Split · ${splitWith.length + (includeMe ? 1 : 0)}` : 'Split'}</span>
-            </PickerChip>
-          )}
-        </div>
+      </div>
 
-        {/* One-tap category or person strip */}
+      {/* Details, one small pill each; tapping one swaps the keypad for its picker */}
+      <div className="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto px-4 pb-3 pt-1">
         {(mode === 'expense' || mode === 'income') && (
-          <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => {
-                  haptic(6)
-                  setCategoryId(categoryId === c.id ? null : c.id)
-                }}
-                className={cn('press flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3 text-[13px] font-semibold transition-colors', categoryId === c.id ? '' : 'bg-surface-2 text-ink-2')}
-                style={categoryId === c.id ? { background: c.color + '24', color: c.color, boxShadow: `inset 0 0 0 1.5px ${c.color}` } : undefined}
-              >
-                <span className="grid size-6 place-items-center rounded-full text-[14px]" style={{ background: c.color + '22' }}>
-                  {c.icon}
-                </span>
-                {c.name}
-              </button>
-            ))}
-            <button onClick={() => setPanel(panel === 'category' ? 'keypad' : 'category')} className="press flex shrink-0 items-center gap-1 rounded-full bg-surface-2 px-3 text-[13px] font-semibold text-ink-2">
-              <LayoutGrid className="size-4" /> All
-            </button>
-          </div>
+          <PickerChip active={panel === 'category'} onClick={() => setPanel(panel === 'category' ? 'keypad' : 'category')} tint={category?.color}>
+            {category ? <span className="text-[15px] leading-none">{category.icon}</span> : <LayoutGrid className="size-4" />}
+            <span className="max-w-[120px] truncate">{category?.name ?? 'Category'}</span>
+          </PickerChip>
         )}
-        {mode === 'people' && people.length > 0 && panel !== 'person' && (
-          <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-3">
-            {people.slice(0, 12).map((p) => (
-              <button key={p.id} onClick={() => setPersonId(p.id)} className="press flex w-14 shrink-0 flex-col items-center gap-1">
-                <span className={cn('rounded-full p-[2px] transition', personId === p.id ? 'ring-2 ring-accent' : '')}>
-                  <Avatar name={p.name} color={p.color} size={42} />
-                </span>
-                <span className={cn('w-full truncate text-center text-[11px] font-medium', personId === p.id ? 'text-ink' : 'text-ink-3')}>{p.name.split(' ')[0]}</span>
-              </button>
-            ))}
-            <button onClick={() => setPanel('person')} className="press flex w-14 shrink-0 flex-col items-center gap-1">
-              <span className="grid size-[46px] place-items-center rounded-full border-2 border-dashed border-ink-3/40 text-ink-3">
-                <Plus className="size-5" />
-              </span>
-              <span className="text-[11px] font-medium text-ink-3">New</span>
-            </button>
-          </div>
+        {mode === 'people' && (
+          <PickerChip active={panel === 'person'} shake={shake === 'person'} onClick={() => setPanel(panel === 'person' ? 'keypad' : 'person')}>
+            {person ? <Avatar name={person.name} color={person.color} size={20} /> : <UserRound className="size-4" />}
+            <span className="max-w-[120px] truncate">{person?.name ?? 'Person'}</span>
+          </PickerChip>
+        )}
+        <PickerChip active={panel === 'account'} shake={shake === 'account'} onClick={() => setPanel(panel === 'account' ? 'keypad' : 'account')}>
+          {account ? <span className="text-[15px] leading-none">{account.icon}</span> : null}
+          <span className="max-w-[120px] truncate">{account?.name ?? 'Account'}</span>
+        </PickerChip>
+        {mode === 'transfer' && (
+          <>
+            <ArrowRight className="size-4 shrink-0 text-ink-3" />
+            <PickerChip active={panel === 'toAccount'} shake={shake === 'toAccount'} onClick={() => setPanel(panel === 'toAccount' ? 'keypad' : 'toAccount')}>
+              {toAccount ? <span className="text-[15px] leading-none">{toAccount.icon}</span> : null}
+              <span className="max-w-[120px] truncate">{toAccount?.name ?? 'To account'}</span>
+            </PickerChip>
+          </>
+        )}
+        {offerDefault && (
+          <button onClick={makeDefault} disabled={updateMe.isPending} className="press h-8 shrink-0 rounded-full bg-accent/12 px-3 text-[13px] font-semibold text-accent disabled:opacity-60">
+            Make default
+          </button>
+        )}
+        {upi && platform === 'ios' && (
+          <PickerChip active={panel === 'app'} onClick={() => setPanel(panel === 'app' ? 'keypad' : 'app')}>
+            <AppDot app={app} size={18} />
+            <span>{app.short}</span>
+          </PickerChip>
+        )}
+        <PickerChip active={panel === 'date'} onClick={() => setPanel(panel === 'date' ? 'keypad' : 'date')}>
+          <CalendarDays className="size-4" />
+          <span>{dayLabel(occurredAt.slice(0, 10))}</span>
+        </PickerChip>
+        {canSplit && (
+          <PickerChip active={panel === 'split' || splitting} onClick={() => setPanel(panel === 'split' ? 'keypad' : 'split')}>
+            <Users className="size-4" />
+            <span>{splitting ? `Split · ${splitWith.length + (includeMe ? 1 : 0)}` : 'Split'}</span>
+          </PickerChip>
         )}
       </div>
 
       {/* Keypad, or a picker in its place */}
-      <div className="relative h-[min(262px,33dvh)] shrink-0 overflow-hidden px-3">
+      <div className="relative h-[min(280px,34dvh)] shrink-0 overflow-hidden px-3">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={panel}
@@ -601,7 +571,13 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
             className="absolute inset-x-3 inset-y-0"
           >
-            {panel === 'keypad' && <Keypad onKey={press} onClear={() => setExpr('')} />}
+            {panel === 'keypad' && (
+              <Keypad
+                onKey={press}
+                onClear={() => setExpr('')}
+                done={upi ? undefined : { onPress: submit, busy: save.isPending || saveMany.isPending, label: hasOp ? '=' : undefined }}
+              />
+            )}
             {panel === 'account' && (
               <AccountPicker accounts={pickable} selected={accountId} onPick={pickAccount} />
             )}
@@ -670,40 +646,23 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
         </AnimatePresence>
       </div>
 
-      <div className="px-4 pt-2">
-        {upi ? (
-          <>
-            <button
-              onClick={pay}
-              className="press flex h-14 w-full items-center justify-center gap-2 rounded-[20px] bg-accent text-[16px] font-semibold text-white shadow-[0_12px_30px_-12px_var(--accent)]"
-            >
-              {hasOp ? (
-                <>= {money(Math.round((result ?? 0) * 100))}</>
-              ) : (
-                <>
-                  Pay {result ? money(Math.round(result * 100)) : ''} {platform === 'ios' ? `with ${app.short}` : ''}
-                  <ArrowRight className="size-5" strokeWidth={2.4} />
-                </>
-              )}
-            </button>
-          </>
-        ) : (
-        <button
-          onClick={submit}
-          disabled={save.isPending || saveMany.isPending}
-          className="press flex h-14 w-full items-center justify-center gap-2 rounded-[20px] bg-accent text-[16px] font-semibold text-white shadow-[0_12px_30px_-12px_var(--accent)] disabled:opacity-60"
-        >
-          {hasOp ? (
-            <>= {money(Math.round((result ?? 0) * 100))}</>
-          ) : (
-            <>
-              <Check className="size-5" strokeWidth={2.6} />
-              {editing ? 'Save changes' : splitting ? `Save and split ${splitWith.length + (includeMe ? 1 : 0)} ways` : `Save ${kindMeta[kind].label.toLowerCase()}`}
-            </>
-          )}
-        </button>
-        )}
-      </div>
+      {upi && (
+        <div className="px-4 pt-3">
+          <button
+            onClick={pay}
+            className="press flex h-14 w-full items-center justify-center gap-2 rounded-[18px] bg-accent text-[16px] font-semibold text-white"
+          >
+            {hasOp ? (
+              <>= {money(Math.round((result ?? 0) * 100))}</>
+            ) : (
+              <>
+                Pay {result ? money(Math.round(result * 100)) : ''} {platform === 'ios' ? `with ${app.short}` : ''}
+                <ArrowRight className="size-5" strokeWidth={2.4} />
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -779,45 +738,73 @@ function PayeeCard({
   )
 }
 
-function PickerChip({ active, shake, onClick, children }: { active?: boolean; shake?: boolean; onClick: () => void; children: ReactNode }) {
+function PickerChip({ active, shake, tint, onClick, children }: { active?: boolean; shake?: boolean; tint?: string; onClick: () => void; children: ReactNode }) {
   return (
     <motion.button
       onClick={onClick}
       animate={shake ? { x: [0, -8, 8, -5, 5, 0] } : {}}
       transition={{ duration: 0.4 }}
       className={cn(
-        'press flex h-9 shrink-0 items-center gap-1.5 rounded-full pl-1.5 pr-2.5 text-[13px] font-semibold transition-colors',
-        active ? 'bg-ink text-bg' : 'bg-surface-2 text-ink',
+        'press flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors',
+        active ? 'bg-ink text-bg' : 'bg-surface text-ink',
         shake && 'ring-2 ring-neg',
       )}
+      style={!active && tint ? { background: tint + '1F', color: tint } : undefined}
     >
       {children}
-      <ChevronDown className={cn('size-3.5 opacity-50 transition-transform', active && 'rotate-180')} />
     </motion.button>
   )
 }
 
-function Keypad({ onKey, onClear }: { onKey: (k: string) => void; onClear: () => void }) {
-  const keys = ['1', '2', '3', '+', '4', '5', '6', '−', '7', '8', '9', '×', '.', '0', 'back', '÷']
-  const holdTimer = useRef<number | undefined>(undefined)
+/** Deletes the last digit; hold to clear the amount. */
+function Backspace({ onKey, onClear, className }: { onKey: (k: string) => void; onClear: () => void; className?: string }) {
+  const hold = useRef<number | undefined>(undefined)
   return (
-    <div className="grid h-full grid-cols-[1fr_1fr_1fr_0.62fr] gap-2 pb-1">
+    <button
+      onClick={() => onKey('back')}
+      onPointerDown={() => (hold.current = window.setTimeout(() => { onClear(); haptic(20) }, 500))}
+      onPointerUp={() => clearTimeout(hold.current)}
+      onPointerLeave={() => clearTimeout(hold.current)}
+      aria-label="Backspace (hold to clear)"
+      className={cn('press grid size-9 place-items-center rounded-full bg-surface text-ink-2', className)}
+    >
+      <Delete className="size-[18px]" />
+    </button>
+  )
+}
+
+/** Digits only, like a phone's number pad. The last key saves (or deletes, when paying a scan). */
+function Keypad({ onKey, onClear, done }: { onKey: (k: string) => void; onClear: () => void; done?: { onPress: () => void; busy: boolean; label?: string } }) {
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', done ? 'done' : 'back']
+  const hold = useRef<number | undefined>(undefined)
+  return (
+    <div className="grid h-full grid-cols-3 gap-2 pb-1">
       {keys.map((k) => {
-        const op = isOp(k)
+        if (k === 'done' && done) {
+          return (
+            <motion.button
+              key={k}
+              whileTap={{ scale: 0.94 }}
+              onClick={done.onPress}
+              disabled={done.busy}
+              aria-label="Save"
+              className="grid select-none place-items-center rounded-[16px] bg-ink text-[26px] font-medium text-bg disabled:opacity-60"
+            >
+              {done.busy ? <LoaderCircle className="size-6 animate-spin" /> : done.label ?? <Check className="size-7" strokeWidth={2.6} />}
+            </motion.button>
+          )
+        }
         return (
           <motion.button
             key={k}
-            whileTap={{ scale: 0.92 }}
+            whileTap={{ scale: 0.94 }}
             transition={{ type: 'spring', stiffness: 600, damping: 30 }}
             onClick={() => onKey(k)}
-            onPointerDown={k === 'back' ? () => (holdTimer.current = window.setTimeout(() => { onClear(); haptic(20) }, 500)) : undefined}
-            onPointerUp={k === 'back' ? () => clearTimeout(holdTimer.current) : undefined}
-            onPointerLeave={k === 'back' ? () => clearTimeout(holdTimer.current) : undefined}
+            onPointerDown={k === 'back' ? () => (hold.current = window.setTimeout(() => { onClear(); haptic(20) }, 500)) : undefined}
+            onPointerUp={k === 'back' ? () => clearTimeout(hold.current) : undefined}
+            onPointerLeave={k === 'back' ? () => clearTimeout(hold.current) : undefined}
             aria-label={k === 'back' ? 'Backspace (hold to clear)' : k}
-            className={cn(
-              'grid select-none place-items-center rounded-[18px] text-[26px] font-medium tracking-tight transition-colors',
-              op ? 'text-[24px] text-ink-3 active:bg-surface-2' : 'bg-surface text-ink active:bg-surface-3',
-            )}
+            className="grid select-none place-items-center rounded-[16px] bg-surface font-rounded text-[28px] font-normal text-ink active:bg-surface-3"
           >
             {k === 'back' ? <Delete className="size-6" /> : k}
           </motion.button>

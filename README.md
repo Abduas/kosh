@@ -15,7 +15,7 @@ where your money goes. One small Go binary, your data in one SQLite file.
 - **Split a bill:** pay the whole bill, split it equally with friends. Your share is your expense; each
   friend's share is added to what they owe you.
 - **Budget check while you pay:** see what's left in that category's budget before you tap Pay.
-- **Fast entry:** a keypad that does sums (`450+120`), one-tap categories, and keyboard input on desktop.
+- **Fast entry:** a clean number pad with a ✓ key to save, one row of pills for category, account, date and split, and keyboard input on desktop (which still does sums like `450+120`).
 - **People:** lend, borrow, partial repayments, a running balance per person, one-tap "settle up",
   and WhatsApp reminders with your UPI ID.
 - **Transfers:** moving money between accounts (an ATM withdrawal is bank → cash) isn't counted as spending.
