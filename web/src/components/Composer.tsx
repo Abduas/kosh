@@ -1,15 +1,16 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Drawer } from 'vaul'
-import { AlignLeft, ArrowRight, CalendarDays, Check, Delete, LayoutGrid, LoaderCircle, Lock, Plus, ScanLine, Store, Trash2, TriangleAlert, UserRound, Users, X } from 'lucide-react'
+import { AlignLeft, ArrowRight, CalendarDays, Check, Delete, LayoutGrid, LoaderCircle, Lock, Pencil, Plus, ScanLine, Store, Trash2, TriangleAlert, UserRound, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import type { Account, Person, Transaction, TxInput, TxKind } from '../lib/api'
+import type { Account, Category, Person, Transaction, TxInput, TxKind } from '../lib/api'
 import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, ymd } from '../lib/format'
 import { haptic, palette } from '../lib/look'
 import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
 import { payableAccounts } from '../lib/pay'
 import { isTouch } from '../lib/device'
-import { useBackToClose } from '../lib/router'
+import { suggestEmoji } from '../lib/emoji'
+import { navigate, useBackToClose } from '../lib/router'
 import { closeComposer, composer, openScanner, type ComposerPreset } from '../lib/store'
 import { payLink, platform, preferredApp, readPending, rememberApp, upiApps, writePending, type UpiApp, type UpiTarget } from '../lib/upi'
 import { isPersonKind, kindMeta } from '../lib/tx'
@@ -620,14 +621,17 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             )}
             {panel === 'date' && <DatePicker value={occurredAt} onChange={setOccurredAt} onDone={() => setPanel('keypad')} />}
             {panel === 'category' && (
-              <div className="grid h-full grid-cols-4 content-start gap-2 overflow-y-auto pb-2">
-                {categories.map((c) => (
-                  <button key={c.id} onClick={() => { setCategoryId(c.id); setPanel('keypad') }} className={cn('press flex flex-col items-center gap-1.5 rounded-2xl p-2', categoryId === c.id && 'bg-surface-2')}>
-                    <Glyph icon={c.icon} color={c.color} size={44} />
-                    <span className="line-clamp-1 text-[11px] font-medium text-ink-2">{c.name}</span>
-                  </button>
-                ))}
-              </div>
+              <CategoryPicker
+                categories={categories}
+                selected={categoryId}
+                kind={mode === 'income' ? 'income' : 'expense'}
+                onPick={(id) => {
+                  haptic(6)
+                  setCategoryId(id)
+                  // Let the choice show for a moment, then bring the keypad back.
+                  setTimeout(() => setPanel('keypad'), 260)
+                }}
+              />
             )}
             {panel === 'person' && (
               <PersonPicker
@@ -881,6 +885,114 @@ function DatePicker({ value, onChange, onDone }: { value: string; onChange: (v: 
       <button onClick={onDone} className="press mt-auto mb-1 h-12 rounded-2xl bg-surface-2 text-[15px] font-semibold">
         Done
       </button>
+    </div>
+  )
+}
+
+/** Categories as tinted chips in two columns, with a quick way to add one. */
+function CategoryPicker({ categories, selected, kind, onPick }: { categories: Category[]; selected: number | null; kind: 'expense' | 'income'; onPick: (id: number) => void }) {
+  const save = useSaveEntity<Category>('categories')
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [emoji, setEmoji] = useState('')
+  const suggested = suggestEmoji(name)
+  const icon = emoji.trim() || suggested || '🏷️'
+
+  const create = () => {
+    if (!name.trim()) return
+    const color = palette[(categories.length * 5) % palette.length]
+    save.mutate(
+      { body: { kind, name: name.trim(), icon, color } },
+      {
+        onSuccess: (c) => {
+          setAdding(false)
+          setName('')
+          setEmoji('')
+          onPick(c.id)
+        },
+      },
+    )
+  }
+
+  if (adding) {
+    return (
+      <form
+        className="flex h-full flex-col gap-3 pt-1"
+        onSubmit={(e) => {
+          e.preventDefault()
+          create()
+        }}
+      >
+        <p className="px-1 text-[13px] font-semibold text-ink-2">New {kind === 'income' ? 'income' : 'expense'} category</p>
+        <div className="flex gap-2">
+          <input
+            value={emoji}
+            onChange={(e) => setEmoji([...e.target.value].slice(-2).join(''))}
+            placeholder={suggested ?? '🏷️'}
+            aria-label="Emoji"
+            className="h-12 w-14 shrink-0 rounded-2xl bg-surface text-center text-[24px] outline-none placeholder:opacity-60"
+          />
+          <input
+            autoFocus={!isTouch}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name, like Coffee"
+            maxLength={40}
+            enterKeyHint="done"
+            className="h-12 min-w-0 flex-1 rounded-2xl bg-surface px-4 text-[16px] outline-none placeholder:text-ink-3"
+          />
+        </div>
+        <div className="mt-auto grid grid-cols-2 gap-2 pb-1">
+          <button type="button" onClick={() => setAdding(false)} className="press h-12 rounded-2xl bg-surface text-[15px] font-semibold">
+            Cancel
+          </button>
+          <button type="submit" disabled={!name.trim() || save.isPending} className="press h-12 rounded-2xl bg-accent text-[15px] font-semibold text-white disabled:opacity-50">
+            Add {icon}
+          </button>
+        </div>
+      </form>
+    )
+  }
+
+  return (
+    <div className="relative h-full">
+      <div className="no-scrollbar h-full overflow-y-auto pb-16">
+        <div className="grid grid-cols-2 gap-2">
+          {categories.map((c) => {
+            const on = selected === c.id
+            return (
+              <button
+                key={c.id}
+                onClick={() => onPick(c.id)}
+                className={cn('press flex h-11 items-center gap-2 rounded-[13px] px-3 text-left transition-opacity', selected != null && !on && 'opacity-50')}
+                style={{
+                  background: `color-mix(in oklab, ${c.color} 20%, transparent)`,
+                  color: `color-mix(in oklab, ${c.color} 78%, var(--ink))`,
+                  boxShadow: on ? `inset 0 0 0 2px ${c.color}` : undefined,
+                }}
+              >
+                <span className="text-[16px] leading-none">{c.icon}</span>
+                <span className="truncate text-[15px] font-semibold">{c.name}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {/* Always in reach, however many categories there are. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center gap-2">
+        <button onClick={() => setAdding(true)} className="press pointer-events-auto flex h-10 items-center gap-1.5 rounded-full bg-accent px-4 text-[14px] font-semibold text-white shadow-float">
+          <Plus className="size-4" strokeWidth={2.6} /> New
+        </button>
+        <button
+          onClick={() => {
+            closeComposer()
+            navigate('/categories')
+          }}
+          className="press pointer-events-auto flex h-10 items-center gap-1.5 rounded-full bg-surface-2 px-4 text-[14px] font-semibold text-ink-2 shadow-float"
+        >
+          <Pencil className="size-3.5" /> Edit
+        </button>
+      </div>
     </div>
   )
 }
