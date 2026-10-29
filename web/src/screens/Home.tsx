@@ -124,7 +124,7 @@ export function Home() {
                 haptic(10)
                 openScanner()
               }}
-              className="press mt-6 flex h-11 items-center gap-2 rounded-full bg-ink px-5 text-[15px] font-semibold text-bg"
+              className="press mt-6 flex h-11 items-center gap-2 rounded-full bg-accent px-5 text-[15px] font-semibold text-white"
             >
               <ScanLine className="size-[18px]" /> Scan & pay
             </button>

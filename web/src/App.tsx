@@ -282,7 +282,7 @@ function TabBar({ path }: { path: string }) {
               openComposer()
             }}
             aria-label="Add transaction"
-            className="grid h-[42px] w-[64px] place-items-center rounded-[14px] bg-ink text-bg"
+            className="grid h-[42px] w-[64px] place-items-center rounded-[14px] bg-accent text-white"
           >
             <Plus className="size-6" strokeWidth={2.6} />
           </motion.button>

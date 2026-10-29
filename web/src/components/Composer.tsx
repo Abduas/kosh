@@ -788,7 +788,7 @@ function Keypad({ onKey, onClear, done }: { onKey: (k: string) => void; onClear:
               onClick={done.onPress}
               disabled={done.busy}
               aria-label="Save"
-              className="grid select-none place-items-center rounded-[16px] bg-ink text-[26px] font-medium text-bg disabled:opacity-60"
+              className="grid select-none place-items-center rounded-[16px] bg-accent text-[26px] font-medium text-white disabled:opacity-60"
             >
               {done.busy ? <LoaderCircle className="size-6 animate-spin" /> : done.label ?? <Check className="size-7" strokeWidth={2.6} />}
             </motion.button>

@@ -142,7 +142,7 @@ export function Log({ searching, inputRef, onCloseSearch }: { searching: boolean
                 title="Nothing here yet"
                 body="Tap + to add what you spent, or scan a UPI QR to pay and record it in one go."
                 action={
-                  <button onClick={() => openComposer()} className="press h-11 rounded-full bg-ink px-5 text-[15px] font-semibold text-bg">
+                  <button onClick={() => openComposer()} className="press h-11 rounded-full bg-accent px-5 text-[15px] font-semibold text-white">
                     Add an expense
                   </button>
                 }
