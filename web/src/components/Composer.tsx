@@ -113,10 +113,11 @@ export function Composer() {
     <Drawer.Root open={open} onOpenChange={(o) => !o && closeComposer()} repositionInputs={false}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[3px]" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[96dvh] w-full max-w-[480px] flex-col rounded-t-[32px] bg-bg shadow-float dark:border-t dark:border-white/10 outline-none md:bottom-4 md:rounded-[32px] md:after:hidden!">
+        {/* A full page on phones, like iOS finance apps; a centred panel on larger screens. */}
+        <Drawer.Content className="fixed inset-x-0 bottom-0 top-0 z-50 mx-auto flex w-full max-w-[480px] flex-col bg-bg pt-[env(safe-area-inset-top)] outline-none after:hidden! md:top-auto md:bottom-4 md:max-h-[96dvh] md:rounded-[32px] md:pt-0 md:shadow-float md:dark:border md:dark:border-white/10">
           <Drawer.Title className="sr-only">{editing ? 'Edit transaction' : 'Add transaction'}</Drawer.Title>
           <Drawer.Description className="sr-only">Enter an amount and details</Drawer.Description>
-          <div className="mx-auto mt-2.5 h-[5px] w-10 shrink-0 rounded-full bg-ink/15" />
+          <div className="mx-auto mt-2.5 hidden h-[5px] w-10 shrink-0 rounded-full bg-ink/15 md:block" />
           {open && <ComposerBody key={key} editing={editing} preset={preset} />}
         </Drawer.Content>
       </Drawer.Portal>
@@ -399,7 +400,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   return (
     <div className="flex min-h-0 flex-1 flex-col pb-[calc(env(safe-area-inset-bottom)+14px)]">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 pt-3">
+      <div className="flex items-center gap-2 px-4 pt-2 md:pt-3">
         <button onClick={closeComposer} aria-label="Close" className="press grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-2">
           <X className="size-[18px]" />
         </button>
@@ -464,14 +465,14 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {upi && <PayeeCard upi={upi} recent={preset.recent} link={payLink(upi, total, app)} onAlreadyPaid={submit} saving={save.isPending || saveMany.isPending} />}
 
         {/* Amount */}
         <motion.div
           animate={shake === 'amount' ? { x: [0, -10, 10, -6, 6, 0] } : {}}
           transition={{ duration: 0.4 }}
-          className={cn('flex flex-col items-center px-6 pb-1', upi ? 'pt-2' : 'pt-5')}
+          className={cn('my-auto flex flex-col items-center px-6 pb-4', upi ? 'pt-2' : 'pt-5')}
         >
           <div className="flex h-5 items-center gap-1 text-[13px] font-medium text-ink-3 tnum">
             {hasOp ? (
@@ -561,7 +562,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       </div>
 
       {/* Keypad, or a picker in its place */}
-      <div className="relative h-[min(280px,34dvh)] shrink-0 overflow-hidden px-3">
+      <div className="relative h-[min(310px,38dvh)] shrink-0 overflow-hidden px-3 md:h-[min(280px,34dvh)]">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={panel}
