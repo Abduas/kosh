@@ -258,7 +258,7 @@ func TestUsersCannotTouchEachOthersData(t *testing.T) {
 	owner.do("POST", "/api/accounts", map[string]any{"name": "SBI", "kind": "bank", "color": "#3B82F6", "icon": "🏦"}, 201, &acc)
 	owner.do("POST", "/api/people", map[string]any{"name": "Rahul", "color": "#F97316"}, 201, &per)
 
-	// A second user, inserted directly since sign-up is owner-only for now.
+	// A second user, inserted directly to keep this test about data access.
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password456"), 4)
 	res, err := db.Exec(`INSERT INTO users (username, name, password_hash) VALUES ('guest', 'Guest', ?)`, string(hash))
 	if err != nil {

@@ -2,7 +2,8 @@
 // - Built assets (/assets/*) have hashed names, so they're cached forever.
 // - Pages are fetched fresh when online, with the cached app shell as fallback.
 // - API calls always go to the network; the app keeps its own data cache.
-const CACHE = 'kosh-v1'
+// - /auth/* (Google sign-in) redirects to other sites, so it's left alone too.
+const CACHE = 'kosh-v2'
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/icon-192.png']
 
 self.addEventListener('install', (event) => {
@@ -22,7 +23,7 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   const url = new URL(req.url)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/_jobs/') || url.pathname === '/healthz') return
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/_jobs/') || url.pathname === '/healthz') return
 
   if (req.mode === 'navigate') {
     event.respondWith(

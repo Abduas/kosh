@@ -74,10 +74,23 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/auth/setup", a.setup)
 	mux.HandleFunc("POST /api/auth/login", a.login)
 	mux.HandleFunc("POST /api/auth/logout", a.logout)
+	mux.HandleFunc("GET /api/auth/invite/{token}", a.inviteInfo)
+	mux.HandleFunc("POST /api/auth/join", a.join)
+
+	// Sign in with Google, through Sideyard. Browser navigations, not API calls.
+	mux.HandleFunc("GET /auth/google", a.startGoogle)
+	mux.HandleFunc("GET /auth/callback", a.googleCallback)
 
 	// Everything below needs a signed-in user.
 	mux.HandleFunc("GET /api/bootstrap", a.authed(a.bootstrap))
 	mux.HandleFunc("PATCH /api/me", a.authed(a.updateMe))
+	mux.HandleFunc("DELETE /api/me/google", a.authed(a.unlinkGoogle))
+
+	// The owner invites and removes people.
+	mux.HandleFunc("GET /api/members", a.ownerOnly(a.listMembers))
+	mux.HandleFunc("DELETE /api/members/{id}", a.ownerOnly(a.deleteMember))
+	mux.HandleFunc("POST /api/invites", a.ownerOnly(a.createInvite))
+	mux.HandleFunc("DELETE /api/invites/{id}", a.ownerOnly(a.deleteInvite))
 
 	mux.HandleFunc("POST /api/accounts", a.authed(a.createAccount))
 	mux.HandleFunc("PATCH /api/accounts/{id}", a.authed(a.updateAccount))

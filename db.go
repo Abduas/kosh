@@ -141,6 +141,35 @@ var migrations = []string{
 	// Pending payments were dropped as a feature; settle any that were saved.
 	// The status column stays (columns are only ever added) and is unused.
 	`UPDATE transactions SET status = 'done' WHERE status = 'pending';`,
+
+	// More than one person can use a Kosh. The first account is the owner, who
+	// invites others with one-time links. Each person's money stays separate.
+	// used_at marks an invite spent even if the person it made is later removed.
+	`ALTER TABLE users ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0;
+	UPDATE users SET is_owner = 1 WHERE id = (SELECT MIN(id) FROM users);
+
+	CREATE TABLE invites (
+		id INTEGER PRIMARY KEY,
+		token_hash TEXT NOT NULL UNIQUE,
+		created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires_at TEXT NOT NULL,
+		used_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		used_at TEXT,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+
+	-- Sign-in with Google (through Sideyard). provider_id is Google's stable
+	-- user ID; email is only for showing which account is connected. Someone
+	-- who signed up with Google has an empty password_hash until they set one.
+	CREATE TABLE identities (
+		provider TEXT NOT NULL,
+		provider_id TEXT NOT NULL,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		email TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+		PRIMARY KEY (provider, provider_id)
+	);
+	CREATE UNIQUE INDEX identities_user ON identities(user_id, provider);`,
 }
 
 func migrate(db *sql.DB) error {

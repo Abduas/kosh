@@ -85,7 +85,17 @@ func (a *api) startSession(w http.ResponseWriter, r *http.Request, uid int64) er
 	return nil
 }
 
-// authStatus tells the frontend which screen to show: setup, login or the app.
+// switchSession ends the request's current session, if any, and starts one
+// for uid: opening an invite or signing in as someone else on a shared phone.
+func (a *api) switchSession(w http.ResponseWriter, r *http.Request, uid int64) error {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		a.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE token_hash = ?`, hashToken(c.Value))
+	}
+	return a.startSession(w, r, uid)
+}
+
+// authStatus tells the frontend which screen to show: setup, login or the app,
+// and whether the Google button can work here.
 func (a *api) authStatus(w http.ResponseWriter, r *http.Request) {
 	var users int
 	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
@@ -93,7 +103,7 @@ func (a *api) authStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := a.sessionUser(r)
-	writeJSON(w, http.StatusOK, map[string]bool{"needsSetup": users == 0, "signedIn": err == nil})
+	writeJSON(w, http.StatusOK, map[string]bool{"needsSetup": users == 0, "signedIn": err == nil, "google": sideyardConfigured()})
 }
 
 type credentials struct {
@@ -102,28 +112,57 @@ type credentials struct {
 	Password string `json:"password"`
 }
 
+const defaultPrefs = `{"currency":"INR","theme":"system","accent":"violet"}`
+
+// check tidies new-account details and returns the bcrypt hash of the password.
+func (in *credentials) check() (string, error) {
+	in.Name = strings.TrimSpace(in.Name)
+	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
+	switch {
+	case in.Name == "" || utf8.RuneCountInString(in.Name) > 60:
+		return "", errValidation("Enter your name")
+	case len(in.Username) < 3 || len(in.Username) > 32 || strings.ContainsAny(in.Username, " \t@/"):
+		return "", errValidation("Username needs 3–32 characters, no spaces")
+	case utf8.RuneCountInString(in.Password) < 8 || len(in.Password) > 72:
+		return "", errValidation("Password needs at least 8 characters")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
+	return string(hash), err
+}
+
+// createUser adds an account with starter categories and a Cash account.
+func createUser(tx *sql.Tx, in credentials, hash string, owner bool) (int64, error) {
+	res, err := tx.Exec(`INSERT INTO users (username, name, password_hash, prefs, is_owner) VALUES (?, ?, ?, ?, ?)`,
+		in.Username, in.Name, hash, defaultPrefs, boolInt(owner))
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return 0, errUsernameTaken
+		}
+		return 0, err
+	}
+	uid, _ := res.LastInsertId()
+	return uid, seedUser(tx, uid)
+}
+
+var errUsernameTaken = errors.New("username taken")
+
+func respondCreateUser(w http.ResponseWriter, err error) {
+	if errors.Is(err, errUsernameTaken) {
+		writeError(w, http.StatusConflict, "That username is taken. Try another.")
+		return
+	}
+	respondErr(w, err)
+}
+
 // setup creates the first (owner) account. It only works while there are no users.
 func (a *api) setup(w http.ResponseWriter, r *http.Request) {
 	var in credentials
 	if !readJSON(w, r, &in) {
 		return
 	}
-	in.Name = strings.TrimSpace(in.Name)
-	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
-	switch {
-	case in.Name == "" || utf8.RuneCountInString(in.Name) > 60:
-		writeError(w, http.StatusBadRequest, "Enter your name")
-		return
-	case len(in.Username) < 3 || len(in.Username) > 32 || strings.ContainsAny(in.Username, " \t@/"):
-		writeError(w, http.StatusBadRequest, "Username needs 3–32 characters, no spaces")
-		return
-	case utf8.RuneCountInString(in.Password) < 8 || len(in.Password) > 72:
-		writeError(w, http.StatusBadRequest, "Password needs at least 8 characters")
-		return
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
+	hash, err := in.check()
 	if err != nil {
-		serverError(w, err)
+		respondErr(w, err)
 		return
 	}
 
@@ -142,15 +181,9 @@ func (a *api) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "This app is already set up")
 		return
 	}
-	res, err := tx.Exec(`INSERT INTO users (username, name, password_hash, prefs) VALUES (?, ?, ?, ?)`,
-		in.Username, in.Name, string(hash), `{"currency":"INR","theme":"system","accent":"violet"}`)
+	uid, err := createUser(tx, in, hash, true)
 	if err != nil {
-		serverError(w, err)
-		return
-	}
-	uid, _ := res.LastInsertId()
-	if err := seedUser(tx, uid); err != nil {
-		serverError(w, err)
+		respondCreateUser(w, err)
 		return
 	}
 	if err := tx.Commit(); err != nil {
@@ -158,6 +191,75 @@ func (a *api) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.startSession(w, r, uid); err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+const errInviteGone = "This invite link has expired or was already used. Ask for a new one."
+
+// inviteInfo lets the sign-up screen check a link and say who sent it.
+func (a *api) inviteInfo(w http.ResponseWriter, r *http.Request) {
+	var from string
+	err := a.db.QueryRowContext(r.Context(), `SELECT u.name FROM invites i JOIN users u ON u.id = i.created_by
+		WHERE i.token_hash = ? AND i.used_at IS NULL AND i.expires_at > ?`,
+		hashToken(r.PathValue("token")), time.Now().UTC().Format(timeLayout)).Scan(&from)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusGone, errInviteGone)
+		return
+	} else if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"invitedBy": from})
+}
+
+// join creates an account from a one-time invite link and signs it in.
+func (a *api) join(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		credentials
+		Token string `json:"token"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	hash, err := in.check()
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Format(timeLayout)
+	var inviteID int64
+	err = tx.QueryRow(`SELECT id FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`, hashToken(in.Token), now).Scan(&inviteID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusGone, errInviteGone)
+		return
+	} else if err != nil {
+		serverError(w, err)
+		return
+	}
+	uid, err := createUser(tx, in.credentials, hash, false)
+	if err != nil {
+		respondCreateUser(w, err)
+		return
+	}
+	if _, err := tx.Exec(`UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?`, uid, now, inviteID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := a.switchSession(w, r, uid); err != nil {
 		serverError(w, err)
 		return
 	}

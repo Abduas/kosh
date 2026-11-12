@@ -53,10 +53,13 @@ type person struct {
 }
 
 type user struct {
-	ID       int64           `json:"id"`
-	Name     string          `json:"name"`
-	Username string          `json:"username"`
-	Prefs    json.RawMessage `json:"prefs"`
+	ID          int64           `json:"id"`
+	Name        string          `json:"name"`
+	Username    string          `json:"username"`
+	Prefs       json.RawMessage `json:"prefs"`
+	IsOwner     bool            `json:"isOwner"`
+	HasPassword bool            `json:"hasPassword"`
+	GoogleEmail *string         `json:"googleEmail"` // null when Google isn't connected
 }
 
 // ---- Queries ----
@@ -138,7 +141,9 @@ func (a *api) loadPeople(ctx context.Context, uid int64, onlyID int64) ([]person
 func (a *api) loadUser(ctx context.Context, uid int64) (user, error) {
 	var u user
 	var prefs string
-	err := a.db.QueryRowContext(ctx, `SELECT id, name, username, prefs FROM users WHERE id = ?`, uid).Scan(&u.ID, &u.Name, &u.Username, &prefs)
+	err := a.db.QueryRowContext(ctx, `SELECT u.id, u.name, u.username, u.prefs, u.is_owner, u.password_hash != '',
+		(SELECT i.email FROM identities i WHERE i.user_id = u.id AND i.provider = 'google')
+		FROM users u WHERE u.id = ?`, uid).Scan(&u.ID, &u.Name, &u.Username, &prefs, &u.IsOwner, &u.HasPassword, &u.GoogleEmail)
 	u.Prefs = json.RawMessage(prefs)
 	return u, err
 }
@@ -272,7 +277,8 @@ func (a *api) updateMe(w http.ResponseWriter, r *http.Request, uid int64) {
 			serverError(w, err)
 			return
 		}
-		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.CurrentPassword)) != nil {
+		// Someone who signed up with Google sets their first password without one.
+		if hash != "" && bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.CurrentPassword)) != nil {
 			writeError(w, http.StatusBadRequest, "Current password is wrong")
 			return
 		}
@@ -294,7 +300,11 @@ func (a *api) updateMe(w http.ResponseWriter, r *http.Request, uid int64) {
 			a.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash != ?`, uid, hashToken(c.Value))
 		}
 	}
-	u, err := a.loadUser(ctx, uid)
+	a.respondMe(w, r, uid)
+}
+
+func (a *api) respondMe(w http.ResponseWriter, r *http.Request, uid int64) {
+	u, err := a.loadUser(r.Context(), uid)
 	if err != nil {
 		serverError(w, err)
 		return

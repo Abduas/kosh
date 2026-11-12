@@ -6,10 +6,10 @@ import { Toaster } from 'sonner'
 import { Composer } from './components/Composer'
 import { PaymentCheck } from './components/PaymentCheck'
 import { cn } from './components/ui'
-import { api } from './lib/api'
+import { api, type AuthStatus } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
-import { useBootstrap } from './lib/queries'
+import { clearLocalData, useBootstrap } from './lib/queries'
 import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
 import { closeScanner, composer, openComposer, openScanner, scanner } from './lib/store'
 import { launchScanEnabled, readPending } from './lib/upi'
@@ -19,6 +19,7 @@ import { Budgets } from './screens/Budgets'
 import { Categories } from './screens/Categories'
 import { Home } from './screens/Home'
 import { Insights } from './screens/Insights'
+import { Members } from './screens/Members'
 import { Onboarding } from './screens/Onboarding'
 import { People, PersonDetail } from './screens/People'
 import { Settings } from './screens/Settings'
@@ -26,12 +27,14 @@ import { Settings } from './screens/Settings'
 export function App() {
   const status = useQuery({
     queryKey: ['auth'],
-    queryFn: () => api<{ needsSetup: boolean; signedIn: boolean }>('GET', '/api/auth/status'),
+    queryFn: () => api<AuthStatus>('GET', '/api/auth/status'),
     staleTime: Infinity,
     retry: 1,
   })
   // Wait until we know there's a session; offline, fall back to the cached copy.
   const boot = useBootstrap(status.data?.signedIn === true || status.isError)
+  const { path } = useLocation()
+  const joinToken = match('/join/:token', path)?.token
 
   useEffect(() => {
     const onSignedOut = () => status.refetch()
@@ -43,9 +46,19 @@ export function App() {
   useLook(prefs)
   setCurrency(prefs?.currency)
 
+  // Someone new is signed in: never show the previous person's saved data.
+  const signedIn = () => {
+    clearLocalData()
+    navigate('/', { replace: true })
+    status.refetch().then(() => boot.refetch())
+  }
+
   let content: ReactNode
-  if (status.data && !status.data.signedIn) {
-    content = <AuthScreen mode={status.data.needsSetup ? 'setup' : 'login'} onDone={() => status.refetch().then(() => boot.refetch())} />
+  if (joinToken && status.data) {
+    // An invite link works whether or not someone is signed in on this phone.
+    content = <AuthScreen mode="join" invite={joinToken} google={status.data.google} onDone={signedIn} />
+  } else if (status.data && !status.data.signedIn) {
+    content = <AuthScreen mode={status.data.needsSetup ? 'setup' : 'login'} google={status.data.google} onDone={signedIn} />
   } else if (boot.data) {
     content = prefs?.onboarded ? <Shell /> : <Onboarding />
   } else if (status.isError || boot.isError) {
@@ -190,6 +203,7 @@ function Shell() {
   else if (path === '/budgets') screen = <Budgets />
   else if (path === '/categories') screen = <Categories />
   else if (path === '/settings') screen = <Settings />
+  else if (path === '/members') screen = <Members />
   else screen = <Home />
 
   return (

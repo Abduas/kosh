@@ -23,6 +23,9 @@ where your money goes. One small Go binary, your data in one SQLite file.
 - **Budgets:** a monthly budget plus per-category limits, with "safe to spend per day".
 - **Search:** notes, categories, people, accounts or an exact amount, across all time.
 - **Privacy:** tap the eye to blur every amount. Export everything to CSV.
+- **Members:** the owner invites family or friends with one-time links (Settings → Members). Each person has
+  their own private accounts and money; the owner can remove people but can't see their data.
+- **Sign in with Google:** through Sideyard's OAuth, next to username and password. Connect it in Settings.
 - **PWA:** installs to the home screen, opens instantly from an on-device cache, works offline for viewing.
 
 ## Run it locally
@@ -34,7 +37,8 @@ make api       # Go API on http://127.0.0.1:3100
 make web-dev   # in another terminal: Vite on http://localhost:5173
 ```
 
-Open http://localhost:5173 and create your account. The first account created owns the app.
+Open http://localhost:5173 and create your account. The first account created owns the app and invites
+everyone else. Google sign-in only works on Sideyard (it needs `SIDEYARD_API_URL`), so locally the button is hidden.
 To try it on your phone over Wi-Fi, run `cd web && npm run dev -- --host` and open the address it prints.
 
 ## Build and deploy
@@ -52,7 +56,9 @@ It's also built to deploy on [Sideyard](https://rabeeh-ta.github.io/sideyard/): 
 | Path | What's there |
 |---|---|
 | `db.go` | Schema and migrations (append-only) |
-| `auth.go` | First-run setup, login, sessions, rate limiting |
+| `auth.go` | First-run setup, invite sign-up, login, sessions, rate limiting |
+| `google.go` | Sign in with Google through Sideyard's OAuth API |
+| `members.go` | The owner's invites and member list |
 | `finance.go` | Accounts, categories, people, settings |
 | `transactions.go` | Transactions: validation, search, paging |
 | `payees.go` | What Kosh remembers about each UPI ID |

@@ -1,15 +1,17 @@
-import { Check, Download, KeyRound, LogOut, Monitor, Moon, Smartphone, Sun, Tag, Target, Wallet } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { Check, Download, KeyRound, LogOut, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Sheet } from '../components/Sheet'
 import { Avatar, Button, Field, ListRow, ScreenHeader, SectionTitle, Segmented, TextInput, Toggle, cn } from '../components/ui'
-import { api, type Prefs } from '../lib/api'
+import { api, type AuthStatus, type Bootstrap, type Prefs, type User } from '../lib/api'
 import { accents } from '../lib/look'
 import { clearLocalData, queryClient, useData, useUpdateMe } from '../lib/queries'
-import { navigate } from '../lib/router'
+import { clearParam, navigate } from '../lib/router'
 import { privacy, togglePrivacy } from '../lib/store'
 import { payableAccounts } from '../lib/pay'
 import { launchScanEnabled, platform, preferredApp, rememberApp, setLaunchScan, upiApps } from '../lib/upi'
+import { GoogleMark } from './Auth'
 
 const currencies = [
   { code: 'INR', label: '₹ Indian Rupee' },
@@ -38,6 +40,25 @@ export function Settings() {
   const [pwOpen, setPwOpen] = useState(false)
   const [install, setInstall] = useState<InstallEvent | null>(null)
   const standalone = matchMedia('(display-mode: standalone)').matches
+  const googleAvailable = queryClient.getQueryData<AuthStatus>(['auth'])?.google ?? false
+
+  // Back from connecting Google.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search)
+    if (q.get('google') === 'linked') toast.success('Google connected. You can sign in with it now.')
+    const err = q.get('authError')
+    if (err) toast.error(err)
+    clearParam('google')
+    clearParam('authError')
+  }, [])
+
+  const unlinkGoogle = useMutation({
+    mutationFn: () => api<User>('DELETE', '/api/me/google'),
+    onSuccess: (user) => {
+      queryClient.setQueryData<Bootstrap>(['bootstrap'], (b) => (b ? { ...b, user } : b))
+      toast.success('Google disconnected')
+    },
+  })
 
   useEffect(() => {
     const onPrompt = (e: Event) => {
@@ -76,7 +97,7 @@ export function Settings() {
   const signOut = async () => {
     await api('POST', '/api/auth/logout').catch(() => {})
     clearLocalData()
-    queryClient.setQueryData(['auth'], { needsSetup: false, signedIn: false })
+    queryClient.setQueryData<AuthStatus>(['auth'], { needsSetup: false, signedIn: false, google: googleAvailable })
     navigate('/', { replace: true })
   }
 
@@ -229,6 +250,12 @@ export function Settings() {
         <ListRow onClick={() => navigate('/categories')} left={<RowIcon className="bg-warn/12 text-warn"><Tag className="size-[18px]" /></RowIcon>} title="Categories" chevron />
         <div className="border-t border-line" />
         <ListRow onClick={() => navigate('/budgets')} left={<RowIcon className="bg-pos/12 text-pos"><Target className="size-[18px]" /></RowIcon>} title="Budgets" chevron />
+        {d.user.isOwner && (
+          <>
+            <div className="border-t border-line" />
+            <ListRow onClick={() => navigate('/members')} left={<RowIcon className="bg-accent/12 text-accent"><UserPlus className="size-[18px]" /></RowIcon>} title="Members" subtitle="Invite family or friends to their own Kosh" chevron />
+          </>
+        )}
         <div className="border-t border-line" />
         <ListRow onClick={exportCsv} left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
       </div>
@@ -255,15 +282,46 @@ export function Settings() {
 
       <SectionTitle title="Security" />
       <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
-        <ListRow onClick={() => setPwOpen(true)} left={<RowIcon className="bg-surface-3 text-ink-2"><KeyRound className="size-[18px]" /></RowIcon>} title="Change password" chevron />
+        <ListRow onClick={() => setPwOpen(true)} left={<RowIcon className="bg-surface-3 text-ink-2"><KeyRound className="size-[18px]" /></RowIcon>} title={d.user.hasPassword ? 'Change password' : 'Set a password'} chevron />
+        {d.user.googleEmail ? (
+          <>
+            <div className="border-t border-line" />
+            <ListRow
+              left={<RowIcon className="bg-surface-2"><GoogleMark className="size-[18px]" /></RowIcon>}
+              title="Google"
+              subtitle={d.user.googleEmail || 'Connected'}
+              right={
+                d.user.hasPassword ? (
+                  <Button size="sm" variant="secondary" loading={unlinkGoogle.isPending} onClick={() => unlinkGoogle.mutate()}>
+                    Disconnect
+                  </Button>
+                ) : undefined
+              }
+            />
+          </>
+        ) : (
+          googleAvailable && (
+            <>
+              <div className="border-t border-line" />
+              <a href="/auth/google?intent=link" className="block">
+                <ListRow left={<RowIcon className="bg-surface-2"><GoogleMark className="size-[18px]" /></RowIcon>} title="Connect Google" subtitle="Sign in with your Google account" className="hover:bg-surface-2/60 active:bg-surface-2" chevron />
+              </a>
+            </>
+          )
+        )}
         <div className="border-t border-line" />
         <ListRow onClick={signOut} left={<RowIcon className="bg-neg/10 text-neg"><LogOut className="size-[18px]" /></RowIcon>} title={<span className="text-neg">Sign out</span>} />
       </div>
 
       <p className="mt-8 text-center text-[12px] text-ink-3">Kosh 0.1 · Open source · Your data lives on your server</p>
 
-      <Sheet open={pwOpen} onOpenChange={setPwOpen} title="Change password" description="Other devices will be signed out.">
-        {pwOpen && <PasswordForm onDone={() => setPwOpen(false)} />}
+      <Sheet
+        open={pwOpen}
+        onOpenChange={setPwOpen}
+        title={d.user.hasPassword ? 'Change password' : 'Set a password'}
+        description={d.user.hasPassword ? 'Other devices will be signed out.' : `Sign in with @${d.user.username} and this password, as well as with Google.`}
+      >
+        {pwOpen && <PasswordForm hasPassword={d.user.hasPassword} onDone={() => setPwOpen(false)} />}
       </Sheet>
     </div>
   )
@@ -273,15 +331,17 @@ function RowIcon({ className, children }: { className?: string; children: ReactN
   return <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', className)}>{children}</span>
 }
 
-function PasswordForm({ onDone }: { onDone: () => void }) {
+function PasswordForm({ hasPassword, onDone }: { hasPassword: boolean; onDone: () => void }) {
   const update = useUpdateMe()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   return (
     <div className="space-y-4">
-      <Field label="Current password">
-        <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
-      </Field>
+      {hasPassword && (
+        <Field label="Current password">
+          <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+        </Field>
+      )}
       <Field label="New password" hint="At least 8 characters">
         <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
       </Field>
@@ -294,14 +354,14 @@ function PasswordForm({ onDone }: { onDone: () => void }) {
             { currentPassword: current, newPassword: next },
             {
               onSuccess: () => {
-                toast.success('Password changed')
+                toast.success(hasPassword ? 'Password changed' : 'Password set')
                 onDone()
               },
             },
           )
         }
       >
-        Change password
+        {hasPassword ? 'Change password' : 'Set password'}
       </Button>
     </div>
   )
