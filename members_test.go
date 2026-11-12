@@ -27,86 +27,67 @@ func (c *client) me() meResp {
 	return b.User
 }
 
-func (c *client) invite() string {
-	c.t.Helper()
-	var inv struct {
-		Token string `json:"token"`
-	}
-	c.do("POST", "/api/invites", nil, 201, &inv)
-	return inv.Token
-}
-
-func TestInvitesAndMembers(t *testing.T) {
+func TestOpenSignupAndMembers(t *testing.T) {
 	srv := newTestServer(t)
 	owner := newClient(t, srv)
-	owner.do("POST", "/api/auth/setup", map[string]string{"name": "Owner", "username": "owner", "password": "password123"}, 201, nil)
+	owner.do("POST", "/api/auth/signup", map[string]string{"name": "Owner", "username": "owner", "password": "password123"}, 201, nil)
 	if !owner.me().IsOwner {
 		t.Fatal("first account should be the owner")
 	}
 
-	token := owner.invite()
-	anon := newClient(t, srv)
-	var info struct {
-		InvitedBy string `json:"invitedBy"`
+	// Anyone can sign up after that, and isn't the owner.
+	sara := newClient(t, srv)
+	sara.do("POST", "/api/auth/signup", map[string]string{"name": "Sara", "username": "Sara", "password": "short"}, 400, nil)
+	sara.do("POST", "/api/auth/signup", map[string]string{"name": "Sara", "username": "OWNER", "password": "password456"}, 400, nil)
+	sara.do("POST", "/api/auth/signup", map[string]string{"name": "Sara", "username": "Sara", "password": "password456"}, 201, nil)
+	me := sara.me()
+	if me.IsOwner || me.Username != "sara" || !me.HasPassword {
+		t.Fatalf("new user: %+v", me)
 	}
-	anon.do("GET", "/api/auth/invite/"+token, nil, 200, &info)
-	if info.InvitedBy != "Owner" {
-		t.Fatalf("invitedBy = %q", info.InvitedBy)
-	}
-	anon.do("GET", "/api/auth/invite/nope", nil, 410, nil)
-
-	// Joining needs a real invite and a free username.
-	anon.do("POST", "/api/auth/join", map[string]string{"token": "nope", "name": "Sara", "username": "sara", "password": "password456"}, 410, nil)
-	anon.do("POST", "/api/auth/join", map[string]string{"token": token, "name": "Sara", "username": "OWNER", "password": "password456"}, 409, nil)
-	anon.do("POST", "/api/auth/join", map[string]string{"token": token, "name": "Sara", "username": "sara", "password": "password456"}, 201, nil)
-	sara := anon.me()
-	if sara.IsOwner || sara.Username != "sara" {
-		t.Fatalf("joined user: %+v", sara)
-	}
-
-	// The link works once.
-	again := newClient(t, srv)
-	again.do("POST", "/api/auth/join", map[string]string{"token": token, "name": "X", "username": "xavier", "password": "password789"}, 410, nil)
-
-	// A member gets their own starter data and can sign in again.
 	var boot struct {
 		Accounts   []account  `json:"accounts"`
 		Categories []category `json:"categories"`
 	}
-	anon.do("GET", "/api/bootstrap", nil, 200, &boot)
+	sara.do("GET", "/api/bootstrap", nil, 200, &boot)
 	if len(boot.Accounts) != 1 || len(boot.Categories) == 0 {
-		t.Fatalf("member wasn't seeded: %d accounts, %d categories", len(boot.Accounts), len(boot.Categories))
+		t.Fatalf("new user wasn't seeded: %d accounts, %d categories", len(boot.Accounts), len(boot.Categories))
 	}
-	fresh := newClient(t, srv)
-	fresh.do("POST", "/api/auth/login", map[string]string{"username": "sara", "password": "password456"}, 200, nil)
+	newClient(t, srv).do("POST", "/api/auth/login", map[string]string{"username": "sara", "password": "password456"}, 200, nil)
 
-	// Only the owner manages members.
-	anon.do("GET", "/api/members", nil, 403, nil)
-	anon.do("POST", "/api/invites", nil, 403, nil)
-	anon.do("DELETE", fmt.Sprintf("/api/members/%d", owner.me().ID), nil, 403, nil)
+	// The old endpoint name still signs people up.
+	newClient(t, srv).do("POST", "/api/auth/setup", map[string]string{"name": "Old", "username": "oldapp", "password": "password789"}, 201, nil)
 
-	pending := owner.invite()
+	// Only the owner sees and removes members.
+	sara.do("GET", "/api/members", nil, 403, nil)
+	sara.do("DELETE", fmt.Sprintf("/api/members/%d", owner.me().ID), nil, 403, nil)
 	var list struct {
 		Members []member `json:"members"`
-		Invites []invite `json:"invites"`
 	}
 	owner.do("GET", "/api/members", nil, 200, &list)
-	if len(list.Members) != 2 || len(list.Invites) != 1 {
+	if len(list.Members) != 3 || !list.Members[0].IsOwner {
 		t.Fatalf("members list: %+v", list)
 	}
-	owner.do("DELETE", fmt.Sprintf("/api/invites/%d", list.Invites[0].ID), nil, 204, nil)
-	newClient(t, srv).do("GET", "/api/auth/invite/"+pending, nil, 410, nil)
 
-	// Removing a member deletes their data, transactions included, and signs them out.
-	acc := boot.Accounts[0].ID
-	anon.do("POST", "/api/transactions", map[string]any{"kind": "expense", "amount": 5000, "accountId": acc, "occurredAt": "2026-11-01T10:00"}, 201, nil)
+	// Removing someone deletes their data, transactions included, and signs them out.
+	sara.do("POST", "/api/transactions", map[string]any{"kind": "expense", "amount": 5000, "accountId": boot.Accounts[0].ID, "occurredAt": "2026-11-01T10:00"}, 201, nil)
 	owner.do("DELETE", fmt.Sprintf("/api/members/%d", owner.me().ID), nil, 400, nil)
-	owner.do("DELETE", fmt.Sprintf("/api/members/%d", sara.ID), nil, 204, nil)
-	anon.do("GET", "/api/bootstrap", nil, 401, nil)
+	owner.do("DELETE", fmt.Sprintf("/api/members/%d", me.ID), nil, 204, nil)
+	sara.do("GET", "/api/bootstrap", nil, 401, nil)
 	owner.do("GET", "/api/members", nil, 200, &list)
-	if len(list.Members) != 1 {
+	if len(list.Members) != 2 {
 		t.Fatalf("member not removed: %+v", list.Members)
 	}
+}
+
+func TestSignupRateLimit(t *testing.T) {
+	srv := newTestServer(t)
+	c := newClient(t, srv)
+	for i := range 5 {
+		c.do("POST", "/api/auth/signup", map[string]string{"name": "Bot", "username": fmt.Sprintf("bot%d", i), "password": "password123"}, 201, nil)
+	}
+	c.do("POST", "/api/auth/signup", map[string]string{"name": "Bot", "username": "bot9", "password": "password123"}, 429, nil)
+	// Signing in still works.
+	c.do("POST", "/api/auth/login", map[string]string{"username": "bot0", "password": "password123"}, 200, nil)
 }
 
 // fakeSideyard stands in for Sideyard's sign-in API. Each code maps to a
@@ -172,10 +153,9 @@ func (c *client) google(query, code string) *url.URL {
 
 func TestGoogleSignIn(t *testing.T) {
 	fakeSideyard(t, map[string]signedInUser{
-		"owner":    {Provider: "google", ID: "g-1", Email: "owner@gmail.com", EmailVerified: true, Name: "Owner Person"},
-		"friend":   {Provider: "google", ID: "g-2", Email: "sara.k@gmail.com", EmailVerified: true, Name: "Sara"},
-		"stranger": {Provider: "google", ID: "g-3", Email: "who@gmail.com", EmailVerified: true, Name: "Who"},
-		"pwuser":   {Provider: "google", ID: "g-4", Email: "pw@gmail.com", EmailVerified: true, Name: "Pw"},
+		"owner":  {Provider: "google", ID: "g-1", Email: "owner@gmail.com", EmailVerified: true, Name: "Owner Person"},
+		"friend": {Provider: "google", ID: "g-2", Email: "sara.k@gmail.com", EmailVerified: true, Name: "Sara"},
+		"pwuser": {Provider: "google", ID: "g-4", Email: "pw@gmail.com", EmailVerified: true, Name: "Pw"},
 	})
 	srv := newTestServer(t)
 
@@ -187,10 +167,10 @@ func TestGoogleSignIn(t *testing.T) {
 		t.Fatal("status should offer Google")
 	}
 
-	// First run: Google creates the owner, with no password.
+	// The first Google sign-up is the owner, with no password.
 	owner := newClient(t, srv)
-	if u := owner.google("intent=setup", "owner"); u.Path != "/" || u.Query().Get("signedIn") != "1" {
-		t.Fatalf("setup landed on %s", u)
+	if u := owner.google("intent=login", "owner"); u.Path != "/" || u.Query().Get("signedIn") != "1" {
+		t.Fatalf("first sign-up landed on %s", u)
 	}
 	me := owner.me()
 	if !me.IsOwner || me.HasPassword || me.GoogleEmail == nil || *me.GoogleEmail != "owner@gmail.com" || me.Username != "owner" {
@@ -199,42 +179,25 @@ func TestGoogleSignIn(t *testing.T) {
 	// Setting a first password doesn't need a current one.
 	owner.do("PATCH", "/api/me", map[string]string{"newPassword": "password123"}, 200, nil)
 
-	// A second setup through Google is refused.
-	if u := newClient(t, srv).google("intent=setup", "stranger"); u.Query().Get("authError") == "" {
-		t.Fatalf("second setup allowed: %s", u)
-	}
-
-	// A Google account nobody has connected can't get in without an invite.
-	if u := newClient(t, srv).google("intent=login", "stranger"); u.Path != "/" || !strings.Contains(u.Query().Get("authError"), "who@gmail.com") {
-		t.Fatalf("stranger landed on %s", u)
-	}
-
-	// An invite lets a new person join with Google.
-	token := owner.invite()
+	// Anyone new signs up just by continuing with Google.
 	friend := newClient(t, srv)
-	if u := friend.google("intent=join&invite="+token, "friend"); u.Query().Get("authError") != "" {
-		t.Fatalf("join failed: %s", u)
+	if u := friend.google("intent=login", "friend"); u.Query().Get("authError") != "" {
+		t.Fatalf("sign-up failed: %s", u)
 	}
 	if m := friend.me(); m.IsOwner || m.Username != "sara.k" {
 		t.Fatalf("friend: %+v", m)
 	}
-	// The invite is spent.
-	if u := newClient(t, srv).google("intent=join&invite="+token, "stranger"); u.Path != "/join/"+token || u.Query().Get("authError") == "" {
-		t.Fatalf("spent invite reused: %s", u)
-	}
 
-	// Next time, plain Google sign-in finds them.
+	// Next time, the same Google account signs in to the same Kosh account.
 	again := newClient(t, srv)
-	if u := again.google("intent=login", "friend"); u.Query().Get("authError") != "" {
-		t.Fatalf("login failed: %s", u)
-	}
-	if again.me().Username != "sara.k" {
-		t.Fatal("signed in as the wrong person")
+	again.google("intent=login", "friend")
+	if again.me().ID != friend.me().ID {
+		t.Fatal("Google sign-in made a second account")
 	}
 
 	// A password account connects Google in Settings, then signs in with it.
 	pw := newClient(t, srv)
-	pw.do("POST", "/api/auth/join", map[string]string{"token": owner.invite(), "name": "Pw", "username": "pwuser", "password": "password456"}, 201, nil)
+	pw.do("POST", "/api/auth/signup", map[string]string{"name": "Pw", "username": "pwuser", "password": "password456"}, 201, nil)
 	pw.do("DELETE", "/api/me/google", nil, 200, nil) // nothing connected yet: a no-op
 	if u := pw.google("intent=link", "pwuser"); u.Path != "/settings" || u.Query().Get("google") != "linked" {
 		t.Fatalf("link landed on %s", u)
@@ -243,8 +206,10 @@ func TestGoogleSignIn(t *testing.T) {
 	if u := pw.google("intent=link", "friend"); !strings.Contains(u.Query().Get("authError"), "another") {
 		t.Fatalf("linked someone else's Google: %s", u)
 	}
-	if u := newClient(t, srv).google("intent=login", "pwuser"); u.Query().Get("authError") != "" {
-		t.Fatalf("linked login failed: %s", u)
+	viaGoogle := newClient(t, srv)
+	viaGoogle.google("intent=login", "pwuser")
+	if viaGoogle.me().Username != "pwuser" {
+		t.Fatal("linked Google signed in to the wrong account")
 	}
 
 	// Disconnecting needs a password to fall back on.
@@ -262,8 +227,13 @@ func TestGoogleSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "authError") || len(resp.Cookies()) > 0 && resp.Cookies()[0].Name == sessionCookie {
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "authError") {
 		t.Fatalf("forged callback: %s", loc)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie && c.Value != "" {
+			t.Fatal("forged callback signed someone in")
+		}
 	}
 }
 
@@ -290,5 +260,13 @@ func TestExistingUserBecomesOwner(t *testing.T) {
 	var owner bool
 	if err := db.QueryRow(`SELECT is_owner FROM users WHERE username = 'me'`).Scan(&owner); err != nil || !owner {
 		t.Fatalf("existing user isn't the owner: %v %v", owner, err)
+	}
+}
+
+func TestClientIPUsesProxyEntry(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Add("X-Forwarded-For", "1.2.3.4, 5.6.7.8") // client-sent "1.2.3.4", proxy added 5.6.7.8
+	if ip := clientIP(r); ip != "5.6.7.8" {
+		t.Fatalf("clientIP = %q", ip)
 	}
 }

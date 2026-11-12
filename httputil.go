@@ -13,7 +13,8 @@ import (
 
 type api struct {
 	db      *sql.DB
-	limiter *loginLimiter
+	limiter *limiter // failed logins
+	signups *limiter // new accounts
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -95,9 +96,14 @@ func isHTTPS(r *http.Request) bool {
 	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
+// clientIP is the address Sideyard's proxy saw. It adds that as the last
+// X-Forwarded-For entry; earlier ones come from the client and can be faked.
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
+	if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
+		parts := strings.Split(xff[len(xff)-1], ",")
+		if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
+			return ip
+		}
 	}
 	host := r.RemoteAddr
 	if i := strings.LastIndex(host, ":"); i > 0 {

@@ -58,7 +58,7 @@ func main() {
 // newServer wires every route. It's separate from main so tests can run the
 // whole API against a temporary database.
 func newServer(db *sql.DB) http.Handler {
-	a := &api{db: db, limiter: newLoginLimiter()}
+	a := &api{db: db, limiter: newLoginLimiter(), signups: newSignupLimiter()}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -71,11 +71,10 @@ func newServer(db *sql.DB) http.Handler {
 
 	// Auth
 	mux.HandleFunc("GET /api/auth/status", a.authStatus)
-	mux.HandleFunc("POST /api/auth/setup", a.setup)
+	mux.HandleFunc("POST /api/auth/signup", a.signup)
+	mux.HandleFunc("POST /api/auth/setup", a.signup) // the old name, for app versions still open on phones
 	mux.HandleFunc("POST /api/auth/login", a.login)
 	mux.HandleFunc("POST /api/auth/logout", a.logout)
-	mux.HandleFunc("GET /api/auth/invite/{token}", a.inviteInfo)
-	mux.HandleFunc("POST /api/auth/join", a.join)
 
 	// Sign in with Google, through Sideyard. Browser navigations, not API calls.
 	mux.HandleFunc("GET /auth/google", a.startGoogle)
@@ -86,11 +85,9 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("PATCH /api/me", a.authed(a.updateMe))
 	mux.HandleFunc("DELETE /api/me/google", a.authed(a.unlinkGoogle))
 
-	// The owner invites and removes people.
+	// The owner sees who has signed up and can remove accounts.
 	mux.HandleFunc("GET /api/members", a.ownerOnly(a.listMembers))
 	mux.HandleFunc("DELETE /api/members/{id}", a.ownerOnly(a.deleteMember))
-	mux.HandleFunc("POST /api/invites", a.ownerOnly(a.createInvite))
-	mux.HandleFunc("DELETE /api/invites/{id}", a.ownerOnly(a.deleteInvite))
 
 	mux.HandleFunc("POST /api/accounts", a.authed(a.createAccount))
 	mux.HandleFunc("PATCH /api/accounts/{id}", a.authed(a.updateAccount))

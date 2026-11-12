@@ -1,19 +1,15 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"net/http"
-	"time"
 )
 
-// The owner (the first account) invites people with one-time links and can
-// remove them. Everyone's money stays separate: the owner can't see it.
-
-const (
-	inviteTTL        = 7 * 24 * time.Hour
-	maxPendingInvite = 20
-)
+// Anyone can sign up. The owner (the first account) sees who has and can
+// remove accounts, such as ones made by bots. Everyone's money stays
+// separate: the owner can't see it.
+//
+// The invites table (migration 5) is from an earlier invite-only version
+// and is no longer used.
 
 // ownerOnly runs h only for the owner.
 func (a *api) ownerOnly(h authedHandler) http.HandlerFunc {
@@ -40,15 +36,8 @@ type member struct {
 	CreatedAt   string  `json:"createdAt"`
 }
 
-type invite struct {
-	ID        int64  `json:"id"`
-	ExpiresAt string `json:"expiresAt"`
-	CreatedAt string `json:"createdAt"`
-}
-
 func (a *api) listMembers(w http.ResponseWriter, r *http.Request, uid int64) {
-	ctx := r.Context()
-	rows, err := a.db.QueryContext(ctx, `SELECT u.id, u.name, u.username, u.is_owner,
+	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id, u.name, u.username, u.is_owner,
 		(SELECT i.email FROM identities i WHERE i.user_id = u.id AND i.provider = 'google'), u.created_at
 		FROM users u ORDER BY u.is_owner DESC, u.created_at, u.id`)
 	if err != nil {
@@ -70,70 +59,7 @@ func (a *api) listMembers(w http.ResponseWriter, r *http.Request, uid int64) {
 		return
 	}
 
-	irows, err := a.db.QueryContext(ctx, `SELECT id, expires_at, created_at FROM invites
-		WHERE used_at IS NULL AND expires_at > ? ORDER BY created_at DESC, id DESC`, time.Now().UTC().Format(timeLayout))
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer irows.Close()
-	invites := []invite{}
-	for irows.Next() {
-		var i invite
-		if err := irows.Scan(&i.ID, &i.ExpiresAt, &i.CreatedAt); err != nil {
-			serverError(w, err)
-			return
-		}
-		invites = append(invites, i)
-	}
-	if err := irows.Err(); err != nil {
-		serverError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"members": members, "invites": invites})
-}
-
-// createInvite makes a one-time link that's good for a week. Only its hash is
-// stored, so the link is shown once.
-func (a *api) createInvite(w http.ResponseWriter, r *http.Request, uid int64) {
-	ctx := r.Context()
-	now := time.Now().UTC()
-	var pending int
-	if err := a.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM invites WHERE used_at IS NULL AND expires_at > ?`, now.Format(timeLayout)).Scan(&pending); err != nil {
-		serverError(w, err)
-		return
-	}
-	if pending >= maxPendingInvite {
-		writeError(w, http.StatusBadRequest, "Too many open invites. Cancel some first.")
-		return
-	}
-	buf := make([]byte, 24)
-	if _, err := rand.Read(buf); err != nil {
-		serverError(w, err)
-		return
-	}
-	token := base64.RawURLEncoding.EncodeToString(buf)
-	expires := now.Add(inviteTTL).Format(timeLayout)
-	res, err := a.db.ExecContext(ctx, `INSERT INTO invites (token_hash, created_by, expires_at) VALUES (?, ?, ?)`, hashToken(token), uid, expires)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	id, _ := res.LastInsertId()
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "token": token, "expiresAt": expires})
-}
-
-func (a *api) deleteInvite(w http.ResponseWriter, r *http.Request, uid int64) {
-	id, ok := pathID(r)
-	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	if _, err := a.db.ExecContext(r.Context(), `DELETE FROM invites WHERE id = ? AND used_at IS NULL`, id); err != nil {
-		serverError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]any{"members": members})
 }
 
 // deleteMember removes someone and all of their money data. The owner can't

@@ -81,9 +81,9 @@ func TestFinanceFlow(t *testing.T) {
 	me.do("POST", "/api/auth/setup", map[string]string{"name": "Abdullah", "username": "abdullah", "password": "short"}, 400, nil)
 	me.do("POST", "/api/auth/setup", map[string]string{"name": "Abdullah", "username": "abdullah", "password": "correct horse"}, 201, nil)
 
-	// A second setup must fail once someone owns the app.
+	// Someone else can't take a username that's in use.
 	other := newClient(t, srv)
-	other.do("POST", "/api/auth/setup", map[string]string{"name": "X", "username": "intruder", "password": "password123"}, 403, nil)
+	other.do("POST", "/api/auth/signup", map[string]string{"name": "X", "username": "Abdullah", "password": "password123"}, 400, nil)
 	other.do("POST", "/api/auth/login", map[string]string{"username": "abdullah", "password": "wrong password"}, 401, nil)
 
 	var boot struct {

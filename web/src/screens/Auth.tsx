@@ -1,14 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { ArrowRight, Lock, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, errorMessage } from '../lib/api'
-import { clearParam, navigate } from '../lib/router'
+import { clearParam } from '../lib/router'
 import { Button, Field, TextInput } from '../components/ui'
 
-type Mode = 'setup' | 'login' | 'join'
-
-export function AuthScreen({ mode, invite, google, onDone }: { mode: Mode; invite?: string; google: boolean; onDone: () => void }) {
+/** Sign in or create an account. Anyone can sign up; the first account owns the app. */
+export function AuthScreen({ needsSetup, google, onDone }: { needsSetup: boolean; google: boolean; onDone: () => void }) {
+  const [mode, setMode] = useState<'login' | 'signup'>(needsSetup ? 'signup' : 'login')
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -24,24 +23,18 @@ export function AuthScreen({ mode, invite, google, onDone }: { mode: Mode; invit
     }
   }, [])
 
-  // Keyed under 'auth' so it's never saved to the device.
-  const inviteInfo = useQuery({
-    queryKey: ['auth', 'invite', invite],
-    queryFn: () => api<{ invitedBy: string }>('GET', `/api/auth/invite/${encodeURIComponent(invite!)}`),
-    enabled: mode === 'join' && !!invite,
-    retry: false,
-    staleTime: Infinity,
-  })
-
-  const creating = mode !== 'login'
+  const creating = mode === 'signup'
+  const switchMode = () => {
+    setMode(creating ? 'login' : 'signup')
+    setError('')
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      if (mode === 'setup') await api('POST', '/api/auth/setup', { name, username, password })
-      else if (mode === 'join') await api('POST', '/api/auth/join', { token: invite, name, username, password })
+      if (creating) await api('POST', '/api/auth/signup', { name, username, password })
       else await api('POST', '/api/auth/login', { username, password })
       onDone()
     } catch (err) {
@@ -50,17 +43,12 @@ export function AuthScreen({ mode, invite, google, onDone }: { mode: Mode; invit
     }
   }
 
-  const googleHref = `/auth/google?intent=${mode}` + (mode === 'join' ? `&invite=${encodeURIComponent(invite ?? '')}` : '')
-
-  const title = mode === 'setup' ? 'Welcome to Kosh' : mode === 'join' ? 'Join Kosh' : 'Welcome back'
-  const subtitle =
-    mode === 'setup'
-      ? 'Create your account. You are the owner of this Kosh.'
-      : mode === 'join'
-        ? `${inviteInfo.data?.invitedBy ?? 'Someone'} invited you. Your money stays private to you.`
-        : 'Sign in to see your money.'
-
-  const inviteGone = mode === 'join' && inviteInfo.isError
+  const title = creating ? 'Create your account' : 'Welcome back'
+  const subtitle = creating
+    ? needsSetup
+      ? 'You are the first one here, so you own this Kosh.'
+      : 'Free, and your money stays private to you.'
+    : 'Sign in to see your money.'
 
   return (
     <div className="relative grid min-h-dvh overflow-hidden md:grid-cols-[1.1fr_1fr]">
@@ -89,77 +77,70 @@ export function AuthScreen({ mode, invite, google, onDone }: { mode: Mode; invit
           className="mx-auto w-full max-w-[380px]"
         >
           <img src="/icon.svg" alt="" className="mb-6 size-14 md:hidden" />
-          <h2 className="text-[30px] font-bold tracking-[-0.03em]">{inviteGone ? 'Invite expired' : title}</h2>
-          <p className="mt-1.5 text-[15px] text-ink-2">{inviteGone ? errorMessage(inviteInfo.error) : subtitle}</p>
+          <h2 className="text-[30px] font-bold tracking-[-0.03em]">{title}</h2>
+          <p className="mt-1.5 text-[15px] text-ink-2">{subtitle}</p>
 
-          {inviteGone ? (
-            <Button size="lg" className="mt-8 w-full" onClick={() => navigate('/', { replace: true })}>
-              Go to sign in
-            </Button>
-          ) : (
+          {google && (
             <>
-              {google && (
-                <>
-                  <a
-                    href={googleHref}
-                    className="press mt-8 flex h-[52px] w-full items-center justify-center gap-3 rounded-2xl bg-surface text-[16px] font-semibold shadow-card ring-1 ring-line"
-                  >
-                    <GoogleMark /> Continue with Google
-                  </a>
-                  <div className="my-6 flex items-center gap-3 text-[12px] font-medium text-ink-3">
-                    <span className="h-px flex-1 bg-line" /> or with a username <span className="h-px flex-1 bg-line" />
-                  </div>
-                </>
-              )}
-
-              <form onSubmit={submit} className={google ? '' : 'mt-8'}>
-                <div className="space-y-4">
-                  {creating && (
-                    <Field label="Your name">
-                      <TextInput autoFocus={!google} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="name" />
-                    </Field>
-                  )}
-                  <Field label="Username">
-                    <TextInput
-                      autoFocus={mode === 'login' && !google}
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="username"
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                    />
-                  </Field>
-                  <Field label="Password" hint={creating ? 'At least 8 characters' : undefined}>
-                    <TextInput
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete={creating ? 'new-password' : 'current-password'}
-                    />
-                  </Field>
-                </div>
-
-                {error && (
-                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-4 rounded-2xl bg-neg/10 px-4 py-3 text-[14px] font-medium text-neg">
-                    {error}
-                  </motion.p>
-                )}
-
-                <Button type="submit" size="lg" loading={busy} className="mt-6 w-full">
-                  {mode === 'login' ? 'Sign in' : 'Create account'}
-                  {!busy && <ArrowRight className="size-5" />}
-                </Button>
-              </form>
-
-              {mode === 'join' && (
-                <button onClick={() => navigate('/', { replace: true })} className="press mx-auto mt-5 block text-[14px] font-semibold text-accent">
-                  I already have an account
-                </button>
-              )}
+              <a
+                href="/auth/google?intent=login"
+                className="press mt-8 flex h-[52px] w-full items-center justify-center gap-3 rounded-2xl bg-surface text-[16px] font-semibold shadow-card ring-1 ring-line"
+              >
+                <GoogleMark /> Continue with Google
+              </a>
+              <div className="my-6 flex items-center gap-3 text-[12px] font-medium text-ink-3">
+                <span className="h-px flex-1 bg-line" /> or with a username <span className="h-px flex-1 bg-line" />
+              </div>
             </>
           )}
+
+          <form onSubmit={submit} className={google ? '' : 'mt-8'}>
+            <div className="space-y-4">
+              {creating && (
+                <Field label="Your name">
+                  <TextInput autoFocus={!google} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="name" />
+                </Field>
+              )}
+              <Field label="Username">
+                <TextInput
+                  autoFocus={mode === 'login' && !google}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Password" hint={creating ? 'At least 8 characters' : undefined}>
+                <TextInput
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete={creating ? 'new-password' : 'current-password'}
+                />
+              </Field>
+            </div>
+
+            {error && (
+              <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-4 rounded-2xl bg-neg/10 px-4 py-3 text-[14px] font-medium text-neg">
+                {error}
+              </motion.p>
+            )}
+
+            <Button type="submit" size="lg" loading={busy} className="mt-6 w-full">
+              {mode === 'login' ? 'Sign in' : 'Create account'}
+              {!busy && <ArrowRight className="size-5" />}
+            </Button>
+          </form>
+
+          <p className="mt-6 text-center text-[14px] text-ink-2">
+            {creating ? 'Already have an account?' : 'New to Kosh?'}{' '}
+            <button type="button" onClick={switchMode} className="press font-semibold text-accent">
+              {creating ? 'Sign in' : 'Create an account'}
+            </button>
+          </p>
 
           <p className="mt-6 flex items-center justify-center gap-1.5 text-[12px] text-ink-3">
             <Lock className="size-3.5" /> Stored on your own server, never shared

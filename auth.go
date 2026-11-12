@@ -131,12 +131,17 @@ func (in *credentials) check() (string, error) {
 }
 
 // createUser adds an account with starter categories and a Cash account.
-func createUser(tx *sql.Tx, in credentials, hash string, owner bool) (int64, error) {
+// The very first account owns the app.
+func createUser(tx *sql.Tx, in credentials, hash string) (int64, error) {
+	var users int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
+		return 0, err
+	}
 	res, err := tx.Exec(`INSERT INTO users (username, name, password_hash, prefs, is_owner) VALUES (?, ?, ?, ?, ?)`,
-		in.Username, in.Name, hash, defaultPrefs, boolInt(owner))
+		in.Username, in.Name, hash, defaultPrefs, boolInt(users == 0))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return 0, errUsernameTaken
+			return 0, errValidation("That username is taken. Try another.")
 		}
 		return 0, err
 	}
@@ -144,18 +149,16 @@ func createUser(tx *sql.Tx, in credentials, hash string, owner bool) (int64, err
 	return uid, seedUser(tx, uid)
 }
 
-var errUsernameTaken = errors.New("username taken")
+const errTooManySignups = "Too many new accounts from this network. Try again later."
 
-func respondCreateUser(w http.ResponseWriter, err error) {
-	if errors.Is(err, errUsernameTaken) {
-		writeError(w, http.StatusConflict, "That username is taken. Try another.")
+// signup creates an account for anyone who opens the app. The first one is
+// the owner. Accounts are limited per IP so a bot can't make thousands.
+func (a *api) signup(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !a.signups.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, errTooManySignups)
 		return
 	}
-	respondErr(w, err)
-}
-
-// setup creates the first (owner) account. It only works while there are no users.
-func (a *api) setup(w http.ResponseWriter, r *http.Request) {
 	var in credentials
 	if !readJSON(w, r, &in) {
 		return
@@ -165,100 +168,22 @@ func (a *api) setup(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	defer tx.Rollback()
-	var users int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
-		serverError(w, err)
-		return
-	}
-	if users > 0 {
-		writeError(w, http.StatusForbidden, "This app is already set up")
-		return
-	}
-	uid, err := createUser(tx, in, hash, true)
-	if err != nil {
-		respondCreateUser(w, err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err := a.startSession(w, r, uid); err != nil {
-		serverError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
-}
-
-const errInviteGone = "This invite link has expired or was already used. Ask for a new one."
-
-// inviteInfo lets the sign-up screen check a link and say who sent it.
-func (a *api) inviteInfo(w http.ResponseWriter, r *http.Request) {
-	var from string
-	err := a.db.QueryRowContext(r.Context(), `SELECT u.name FROM invites i JOIN users u ON u.id = i.created_by
-		WHERE i.token_hash = ? AND i.used_at IS NULL AND i.expires_at > ?`,
-		hashToken(r.PathValue("token")), time.Now().UTC().Format(timeLayout)).Scan(&from)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusGone, errInviteGone)
-		return
-	} else if err != nil {
-		serverError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"invitedBy": from})
-}
-
-// join creates an account from a one-time invite link and signs it in.
-func (a *api) join(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		credentials
-		Token string `json:"token"`
-	}
-	if !readJSON(w, r, &in) {
-		return
-	}
-	hash, err := in.check()
+	uid, err := createUser(tx, in, hash)
 	if err != nil {
 		respondErr(w, err)
 		return
 	}
-
-	tx, err := a.db.BeginTx(r.Context(), nil)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback()
-	now := time.Now().UTC().Format(timeLayout)
-	var inviteID int64
-	err = tx.QueryRow(`SELECT id FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`, hashToken(in.Token), now).Scan(&inviteID)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusGone, errInviteGone)
-		return
-	} else if err != nil {
-		serverError(w, err)
-		return
-	}
-	uid, err := createUser(tx, in.credentials, hash, false)
-	if err != nil {
-		respondCreateUser(w, err)
-		return
-	}
-	if _, err := tx.Exec(`UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?`, uid, now, inviteID); err != nil {
-		serverError(w, err)
-		return
-	}
 	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
+	a.signups.fail(ip) // counts the account made
 	if err := a.switchSession(w, r, uid); err != nil {
 		serverError(w, err)
 		return
@@ -311,21 +236,24 @@ func (a *api) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// loginLimiter allows 8 failed logins per IP per 10 minutes.
-type loginLimiter struct {
+// limiter allows max events per IP within window: failed logins, new accounts.
+type limiter struct {
 	mu       sync.Mutex
+	window   time.Duration
+	max      int
 	attempts map[string][]time.Time
 }
 
-func newLoginLimiter() *loginLimiter { return &loginLimiter{attempts: map[string][]time.Time{}} }
+func newLimiter(window time.Duration, max int) *limiter {
+	return &limiter{window: window, max: max, attempts: map[string][]time.Time{}}
+}
 
-const (
-	loginWindow   = 10 * time.Minute
-	loginMaxFails = 8
-)
+// 8 failed logins per IP per 10 minutes; 5 new accounts per IP per hour.
+func newLoginLimiter() *limiter  { return newLimiter(10*time.Minute, 8) }
+func newSignupLimiter() *limiter { return newLimiter(time.Hour, 5) }
 
-func (l *loginLimiter) recent(ip string) []time.Time {
-	cutoff := time.Now().Add(-loginWindow)
+func (l *limiter) recent(ip string) []time.Time {
+	cutoff := time.Now().Add(-l.window)
 	kept := l.attempts[ip][:0]
 	for _, t := range l.attempts[ip] {
 		if t.After(cutoff) {
@@ -340,19 +268,19 @@ func (l *loginLimiter) recent(ip string) []time.Time {
 	return kept
 }
 
-func (l *loginLimiter) allow(ip string) bool {
+func (l *limiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return len(l.recent(ip)) < loginMaxFails
+	return len(l.recent(ip)) < l.max
 }
 
-func (l *loginLimiter) fail(ip string) {
+func (l *limiter) fail(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.attempts[ip] = append(l.recent(ip), time.Now())
 }
 
-func (l *loginLimiter) reset(ip string) {
+func (l *limiter) reset(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.attempts, ip)

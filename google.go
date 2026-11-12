@@ -29,13 +29,9 @@ import (
 //
 // What happens next depends on intent:
 //
-//	login  sign in to the account this Google account is connected to
-//	setup  create the owner account, while the app has no users
-//	join   create an account from an invite link (invite=<token>)
+//	login  sign in to the account this Google account is connected to, or
+//	       sign up: a Google account nobody has connected gets a new account
 //	link   connect Google to the signed-in account (Settings)
-//
-// A Google account that isn't connected to anyone can't make an account
-// without an invite: Kosh isn't open to everyone with a Google account.
 
 const (
 	signinStateCookie  = "kosh_signin_state"
@@ -91,14 +87,10 @@ func sideyardAPI(ctx context.Context, path string, in, out any) error {
 
 // intentPage is where the browser lands after a sign-in with this intent.
 func intentPage(intent string) string {
-	switch {
-	case intent == "link":
+	if intent == "link" {
 		return "/settings"
-	case strings.HasPrefix(intent, "join:"):
-		return "/join/" + url.PathEscape(strings.TrimPrefix(intent, "join:"))
-	default:
-		return "/"
 	}
+	return "/"
 }
 
 // authFail sends the browser back to the page it came from with a message
@@ -112,14 +104,9 @@ func signinCookie(r *http.Request, name, value string, maxAge int) *http.Cookie 
 }
 
 func (a *api) startGoogle(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	intent := q.Get("intent")
-	switch intent {
-	case "login", "setup", "link":
-	case "join":
-		intent = "join:" + q.Get("invite")
-	default:
-		intent = "login"
+	intent := "login"
+	if r.URL.Query().Get("intent") == "link" {
+		intent = "link"
 	}
 	if !sideyardConfigured() {
 		authFail(w, r, intent, "Google sign-in isn't set up on this server.")
@@ -140,16 +127,14 @@ func (a *api) startGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, signinCookie(r, signinStateCookie, start.State, 600))
-	http.SetCookie(w, signinCookie(r, signinIntentCookie, url.QueryEscape(intent), 600))
+	http.SetCookie(w, signinCookie(r, signinIntentCookie, intent, 600))
 	http.Redirect(w, r, start.URL, http.StatusFound)
 }
 
 func (a *api) googleCallback(w http.ResponseWriter, r *http.Request) {
 	intent := "login"
-	if c, err := r.Cookie(signinIntentCookie); err == nil {
-		if v, err := url.QueryUnescape(c.Value); err == nil && v != "" {
-			intent = v
-		}
+	if c, err := r.Cookie(signinIntentCookie); err == nil && c.Value == "link" {
+		intent = "link"
 	}
 	var state string
 	if c, err := r.Cookie(signinStateCookie); err == nil {
@@ -184,29 +169,18 @@ func (a *api) googleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid, err := a.identityUser(r.Context(), g)
-	switch {
-	case err == nil:
-		// Already connected: just sign in, whatever the intent.
-	case !errors.Is(err, sql.ErrNoRows):
-		serverError(w, err)
-		return
-	case intent == "setup":
-		uid, err = a.createGoogleUser(r.Context(), g, "")
-	case strings.HasPrefix(intent, "join:"):
-		uid, err = a.createGoogleUser(r.Context(), g, strings.TrimPrefix(intent, "join:"))
-	default:
-		who := g.Email
-		if who == "" {
-			who = "This Google account"
+	if errors.Is(err, sql.ErrNoRows) {
+		// New to Kosh: sign them up.
+		ip := clientIP(r)
+		if !a.signups.allow(ip) {
+			authFail(w, r, intent, errTooManySignups)
+			return
 		}
-		authFail(w, r, intent, who+" isn't connected to a Kosh account. Sign in with your username, or ask for an invite link.")
-		return
+		if uid, err = a.createGoogleUser(r.Context(), g); err == nil {
+			a.signups.fail(ip)
+		}
 	}
-	var ve errValidation
-	if errors.As(err, &ve) {
-		authFail(w, r, intent, string(ve))
-		return
-	} else if err != nil {
+	if err != nil {
 		serverError(w, err)
 		return
 	}
@@ -228,36 +202,14 @@ func (a *api) identityUser(ctx context.Context, g signedInUser) (int64, error) {
 	return uid, err
 }
 
-// createGoogleUser makes an account for a Google sign-in. With no invite it
-// makes the owner, and only while there are no users yet; with an invite
-// token it spends the invite.
-func (a *api) createGoogleUser(ctx context.Context, g signedInUser, invite string) (int64, error) {
+// createGoogleUser makes an account for a Google sign-in, named after the
+// Google account.
+func (a *api) createGoogleUser(ctx context.Context, g signedInUser) (int64, error) {
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	now := time.Now().UTC().Format(timeLayout)
-
-	owner := invite == ""
-	var inviteID int64
-	if owner {
-		var users int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
-			return 0, err
-		}
-		if users > 0 {
-			return 0, errValidation("This Kosh is already set up. Sign in instead.")
-		}
-	} else {
-		err := tx.QueryRow(`SELECT id FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`, hashToken(invite), now).Scan(&inviteID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, errValidation(errInviteGone)
-		} else if err != nil {
-			return 0, err
-		}
-	}
-
 	username, err := freeUsername(tx, g.Email)
 	if err != nil {
 		return 0, err
@@ -270,17 +222,12 @@ func (a *api) createGoogleUser(ctx context.Context, g signedInUser, invite strin
 		name = string([]rune(name)[:60])
 	}
 	// No password: they sign in with Google, and can set one in Settings.
-	uid, err := createUser(tx, credentials{Name: name, Username: username}, "", owner)
+	uid, err := createUser(tx, credentials{Name: name, Username: username}, "")
 	if err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(`INSERT INTO identities (provider, provider_id, user_id, email) VALUES (?, ?, ?, ?)`, g.Provider, g.ID, uid, g.Email); err != nil {
 		return 0, err
-	}
-	if !owner {
-		if _, err := tx.Exec(`UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?`, uid, now, inviteID); err != nil {
-			return 0, err
-		}
 	}
 	return uid, tx.Commit()
 }

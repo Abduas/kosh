@@ -33,8 +33,6 @@ export function App() {
   })
   // Wait until we know there's a session; offline, fall back to the cached copy.
   const boot = useBootstrap(status.data?.signedIn === true || status.isError)
-  const { path } = useLocation()
-  const joinToken = match('/join/:token', path)?.token
 
   useEffect(() => {
     const onSignedOut = () => status.refetch()
@@ -54,11 +52,8 @@ export function App() {
   }
 
   let content: ReactNode
-  if (joinToken && status.data) {
-    // An invite link works whether or not someone is signed in on this phone.
-    content = <AuthScreen mode="join" invite={joinToken} google={status.data.google} onDone={signedIn} />
-  } else if (status.data && !status.data.signedIn) {
-    content = <AuthScreen mode={status.data.needsSetup ? 'setup' : 'login'} google={status.data.google} onDone={signedIn} />
+  if (status.data && !status.data.signedIn) {
+    content = <AuthScreen needsSetup={status.data.needsSetup} google={status.data.google} onDone={signedIn} />
   } else if (boot.data) {
     content = prefs?.onboarded ? <Shell /> : <Onboarding />
   } else if (status.isError || boot.isError) {

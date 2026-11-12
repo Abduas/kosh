@@ -31,7 +31,6 @@ export type User = {
 export type AuthStatus = { needsSetup: boolean; signedIn: boolean; google: boolean }
 
 export type Member = { id: number; name: string; username: string; isOwner: boolean; googleEmail: string | null; createdAt: string }
-export type Invite = { id: number; expiresAt: string; createdAt: string }
 
 export type Account = {
   id: number

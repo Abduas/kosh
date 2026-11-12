@@ -253,7 +253,7 @@ export function Settings() {
         {d.user.isOwner && (
           <>
             <div className="border-t border-line" />
-            <ListRow onClick={() => navigate('/members')} left={<RowIcon className="bg-accent/12 text-accent"><UserPlus className="size-[18px]" /></RowIcon>} title="Members" subtitle="Invite family or friends to their own Kosh" chevron />
+            <ListRow onClick={() => navigate('/members')} left={<RowIcon className="bg-accent/12 text-accent"><UserPlus className="size-[18px]" /></RowIcon>} title="Members" subtitle="Everyone who has signed up" chevron />
           </>
         )}
         <div className="border-t border-line" />
