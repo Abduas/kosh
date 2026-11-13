@@ -128,6 +128,8 @@ export type CaptureSetup = {
   timezone?: string
   lastUsedAt: string | null // UTC
   saved: number
+  /** The shared Kosh shortcut's iCloud link, when this server has one. */
+  shortcutUrl?: string
 }
 
 export type CaptureTest =

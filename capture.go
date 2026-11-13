@@ -19,6 +19,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 	_ "time/tzdata" // the server may have no zoneinfo; users' timezones still work
@@ -36,6 +37,19 @@ type captureSetup struct {
 	Timezone   string  `json:"timezone,omitempty"`
 	LastUsedAt *string `json:"lastUsedAt"`
 	Saved      int     `json:"saved"` // messages that became transactions
+	// The shared "Kosh" shortcut (an iCloud link), so setup is "add, connect,
+	// pick it in each automation" instead of building the request by hand.
+	ShortcutURL string `json:"shortcutUrl,omitempty"`
+}
+
+// captureShortcutURL is set in Sideyard as CAPTURE_SHORTCUT_URL once someone
+// has built the Kosh shortcut and shared it from the Shortcuts app.
+func captureShortcutURL() string {
+	u := strings.TrimSpace(os.Getenv("CAPTURE_SHORTCUT_URL"))
+	if strings.HasPrefix(u, "https://www.icloud.com/shortcuts/") {
+		return u
+	}
+	return ""
 }
 
 func (a *api) getCaptureSetup(w http.ResponseWriter, r *http.Request, uid int64) {
@@ -47,6 +61,7 @@ func (a *api) getCaptureSetup(w http.ResponseWriter, r *http.Request, uid int64)
 		return
 	}
 	s.Enabled = err == nil
+	s.ShortcutURL = captureShortcutURL()
 	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM captures WHERE user_id = ? AND status = 'saved'`, uid).Scan(&s.Saved); err != nil {
 		serverError(w, err)
 		return

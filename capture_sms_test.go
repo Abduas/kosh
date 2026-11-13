@@ -28,6 +28,8 @@ func TestParseBankSMS(t *testing.T) {
 			bankSMS{Direction: "debit", Amount: 124900, Last4: "6789", Bank: "HDFC Bank", Merchant: "Amazon"}},
 		{"federal debit", "Rs 300.00 debited from your A/c XX5566 using UPI on 13-11-2025 to VPA fuel.station@hdfcbank. Avl Bal Rs 12,000.50 -Federal Bank",
 			bankSMS{Direction: "debit", Amount: 30000, Last4: "5566", Bank: "Federal Bank", Payee: "fuel.station@hdfcbank", Merchant: "fuel.station@hdfcbank"}},
+		{"canara upi debit", "Dear Customer, Acct XXXX2742 Dr. INR 750.00 on 13/11/26 to Povval Fuels; UPI: 132800469772; Bal INR 4,407.74.Not you?SMS BLOCKUPI to 9901771222-CanaraBank",
+			bankSMS{Direction: "debit", Amount: 75000, Last4: "2742", Bank: "Canara Bank", Merchant: "Povval Fuels", Ref: "132800469772"}},
 		{"balance first", "Avl Bal Rs 10,000.00. Rs 450 debited from A/c XX1111 to ZOMATO on 13-11-25 Ref 531788889999",
 			bankSMS{Direction: "debit", Amount: 45000, Last4: "1111", Merchant: "Zomato", Ref: "531788889999"}},
 	}
