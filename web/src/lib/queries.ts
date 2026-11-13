@@ -181,6 +181,7 @@ export function useDeleteTx() {
     onSuccess: (_, t) => {
       invalidateMoney()
       toast('Transaction deleted', {
+        duration: 8000,
         action: {
           label: 'Undo',
           onClick: () => api('POST', '/api/transactions', txInput(t)).then(invalidateMoney, (e) => toast.error(errorMessage(e))),

@@ -50,39 +50,76 @@ export function TxAmount({ t, accountId, className }: { t: Transaction; accountI
   )
 }
 
-/** One transaction. Tap to edit; swipe left to delete. */
+const OPEN_X = -88
+/** Closes the row whose Delete button is showing, so only one is ever open. */
+let closeOpenRow: (() => void) | null = null
+
+/**
+ * One transaction. Tap to edit; swipe left to show a Delete button.
+ * A swipe never deletes by itself, however fast or far: on a phone a quick
+ * sideways flick happens by accident while scrolling or switching pages, so
+ * deleting always takes a tap on the revealed button (and the toast has Undo).
+ */
 export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: number; showDate?: boolean }) {
   const d = useData()
   const del = useDeleteTx()
   const x = useMotionValue(0)
   const [open, setOpen] = useState(false)
+  const row = useRef<HTMLDivElement>(null)
   const dragged = useRef(false) // a swipe must not also count as a tap
-  const reveal = useTransform(x, [-90, -20, 0], [1, 0.4, 0])
+  const reveal = useTransform(x, [OPEN_X, -20, 0], [1, 0.4, 0])
   const { title, subtitle } = describeTx(t, d)
 
   const settle = (to: number) => animate(x, to, { type: 'spring', stiffness: 500, damping: 40 })
+  const close = () => {
+    setOpen(false)
+    settle(0)
+  }
   const onDragEnd = (_: unknown, info: PanInfo) => {
-    if (info.offset.x < -180 || info.velocity.x < -900) {
-      haptic(12)
-      settle(-window.innerWidth)
-      del.mutate(t)
-      return
-    }
-    const shouldOpen = info.offset.x < -45
-    setOpen(shouldOpen)
-    settle(shouldOpen ? -88 : 0)
+    // Where the row would come to rest: a flick helps open or close it, nothing more.
+    const rest = x.get() + info.velocity.x * 0.1
+    if (rest < OPEN_X / 2) {
+      setOpen(true)
+      settle(OPEN_X)
+    } else close()
   }
 
+  // While open: any touch outside this row, or any scroll, closes it, so a
+  // forgotten Delete button can't catch a stray tap later.
+  useEffect(() => {
+    if (!open) return
+    closeOpenRow?.()
+    closeOpenRow = close
+    const outside = (e: PointerEvent) => {
+      if (!row.current?.contains(e.target as Node)) close()
+    }
+    const scrolled = () => close()
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('scroll', scrolled, { capture: true, passive: true })
+    return () => {
+      if (closeOpenRow === close) closeOpenRow = null
+      document.removeEventListener('pointerdown', outside, true)
+      document.removeEventListener('scroll', scrolled, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
   return (
-    <div className="relative overflow-hidden rounded-2xl">
+    <div ref={row} className="relative overflow-hidden rounded-2xl">
       <motion.button
         style={{ opacity: reveal }}
+        tabIndex={open ? 0 : -1}
         onClick={() => {
+          if (!open || del.isPending) return
           haptic(12)
           del.mutate(t)
         }}
-        className="absolute inset-y-0 right-0 flex w-[88px] flex-col items-center justify-center gap-0.5 rounded-2xl bg-neg text-[12px] font-semibold text-white"
+        className={cn(
+          'absolute inset-y-0 right-0 flex w-[88px] flex-col items-center justify-center gap-0.5 rounded-2xl bg-neg text-[12px] font-semibold text-white',
+          !open && 'pointer-events-none',
+        )}
         aria-label="Delete transaction"
+        aria-hidden={!open}
       >
         <Trash2 className="size-5" />
         Delete
@@ -90,8 +127,8 @@ export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: 
       <motion.div
         drag="x"
         dragDirectionLock
-        dragConstraints={{ left: -260, right: 0 }}
-        dragElastic={{ left: 0.25, right: 0 }}
+        dragConstraints={{ left: OPEN_X, right: 0 }}
+        dragElastic={{ left: 0.15, right: 0 }}
         dragMomentum={false}
         onPointerDown={() => (dragged.current = false)}
         onDragStart={() => (dragged.current = true)}
@@ -99,10 +136,8 @@ export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: 
         style={{ x, touchAction: 'pan-y' }}
         onTap={() => {
           if (dragged.current) return
-          if (open) {
-            setOpen(false)
-            settle(0)
-          } else editTransaction(t)
+          if (open) close()
+          else editTransaction(t)
         }}
         className="relative flex cursor-pointer items-center gap-3.5 bg-bg px-1 py-2.5 transition-colors hover:bg-surface/60"
       >
