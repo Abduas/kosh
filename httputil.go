@@ -12,9 +12,10 @@ import (
 )
 
 type api struct {
-	db      *sql.DB
-	limiter *limiter // failed logins
-	signups *limiter // new accounts
+	db       *sql.DB
+	limiter  *limiter // failed logins
+	signups  *limiter // new accounts
+	captures *limiter // messages from each capture link
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

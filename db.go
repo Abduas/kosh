@@ -170,6 +170,47 @@ var migrations = []string{
 		PRIMARY KEY (provider, provider_id)
 	);
 	CREATE UNIQUE INDEX identities_user ON identities(user_id, provider);`,
+
+	// Auto-capture: an iPhone automation forwards bank and UPI messages to
+	// POST /api/capture/{token}. The token only lets a phone send messages in;
+	// it's kept as is so Settings can show the link again. timezone turns the
+	// time a message arrived into the user's wall-clock time.
+	`CREATE TABLE capture_keys (
+		user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		token TEXT NOT NULL UNIQUE,
+		timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+		last_used_at TEXT,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+
+	-- Each bank message Kosh understood. status: 'review' waits for you,
+	-- 'saved' became (or matched) transaction_id, 'dismissed' you said no.
+	-- Messages that aren't money moving are never stored.
+	CREATE TABLE captures (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		text TEXT NOT NULL,
+		text_hash TEXT NOT NULL,
+		direction TEXT NOT NULL CHECK (direction IN ('debit', 'credit')),
+		amount INTEGER NOT NULL CHECK (amount > 0),
+		account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+		bank TEXT NOT NULL DEFAULT '',
+		last4 TEXT NOT NULL DEFAULT '',
+		payee TEXT NOT NULL DEFAULT '',
+		merchant TEXT NOT NULL DEFAULT '',
+		ref TEXT NOT NULL DEFAULT '',
+		occurred_at TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'review' CHECK (status IN ('review', 'saved', 'dismissed')),
+		transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+	CREATE UNIQUE INDEX captures_text ON captures(user_id, text_hash);
+	-- The same payment told twice (bank SMS and a UPI app's) shares a reference.
+	-- Out of one account and into another with one reference is a transfer, so direction is part of it.
+	CREATE UNIQUE INDEX captures_ref ON captures(user_id, ref, direction) WHERE ref != '';
+	CREATE INDEX captures_review ON captures(user_id, occurred_at DESC) WHERE status = 'review';
+	CREATE INDEX captures_merchant ON captures(user_id, merchant) WHERE status = 'saved';
+	CREATE INDEX captures_transaction ON captures(transaction_id) WHERE transaction_id IS NOT NULL;`,
 }
 
 func migrate(db *sql.DB) error {

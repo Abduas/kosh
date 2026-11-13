@@ -10,6 +10,7 @@ import {
   type BalancePoint,
   type Bootstrap,
   type Budget,
+  type Capture,
   type Category,
   type Insights,
   type Person,
@@ -137,7 +138,7 @@ export function useBudgets(month: string) {
 
 /** Money changed: refresh balances, lists and charts. */
 export function invalidateMoney() {
-  for (const key of ['bootstrap', 'tx', 'insights', 'balance', 'budgets']) {
+  for (const key of ['bootstrap', 'tx', 'insights', 'balance', 'budgets', 'captures']) {
     queryClient.invalidateQueries({ queryKey: [key] })
   }
 }
@@ -152,7 +153,7 @@ export function txInput(t: Transaction): TxInput {
     personId: t.personId,
     note: t.note,
     occurredAt: t.occurredAt,
-    source: t.source === 'upi-scan' ? 'upi-scan' : 'manual',
+    source: t.source === 'upi-scan' || t.source === 'sms' ? t.source : 'manual',
     payee: t.payee,
   }
 }
@@ -236,5 +237,26 @@ export function useDeleteBudget() {
   return useMutation({
     mutationFn: (id: number) => api('DELETE', `/api/budgets/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budgets'] }),
+  })
+}
+
+// ---- Auto-capture: bank messages waiting for review ----
+
+export function useCaptures() {
+  return useQuery({
+    queryKey: ['captures'],
+    queryFn: () => api<{ items: Capture[] }>('GET', '/api/captures'),
+    select: (r) => r.items,
+    refetchOnWindowFocus: 'always',
+  })
+}
+
+export function useDismissCapture() {
+  return useMutation({
+    mutationFn: (c: Capture) => api('POST', `/api/captures/${c.id}/dismiss`),
+    onMutate: (c) => {
+      queryClient.setQueryData<{ items: Capture[] }>(['captures'], (r) => r && { items: r.items.filter((x) => x.id !== c.id) })
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['captures'] }),
   })
 }

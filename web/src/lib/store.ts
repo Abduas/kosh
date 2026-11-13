@@ -58,6 +58,10 @@ export type ComposerPreset = {
   upi?: UpiTarget
   /** The last payment to this UPI ID, to warn before paying twice. */
   recent?: { amount: number; savedAt: string }
+  /** Local 'YYYY-MM-DDTHH:MM'; defaults to now. */
+  occurredAt?: string
+  /** Saving records this captured bank message. */
+  captureId?: number
 }
 
 type ComposerState = { open: boolean; editing: Transaction | null; preset: ComposerPreset; key: number }

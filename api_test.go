@@ -354,7 +354,7 @@ func TestPayeeMemory(t *testing.T) {
 	}
 
 	bad := map[string]any{"kind": "expense", "amount": 100, "accountId": cash, "occurredAt": "2026-10-27T10:00"}
-	bad["source"] = "sms"
+	bad["source"] = "made-up"
 	me.do("POST", "/api/transactions", bad, 400, nil)
 	bad["source"] = "upi-scan"
 	bad["payee"] = "not-a-vpa"

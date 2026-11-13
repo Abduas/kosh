@@ -23,6 +23,8 @@ import { Members } from './screens/Members'
 import { Onboarding } from './screens/Onboarding'
 import { People, PersonDetail } from './screens/People'
 import { Settings } from './screens/Settings'
+import { CaptureSettings } from './screens/Capture'
+import { Review } from './screens/Review'
 
 export function App() {
   const status = useQuery({
@@ -199,6 +201,8 @@ function Shell() {
   else if (path === '/categories') screen = <Categories />
   else if (path === '/settings') screen = <Settings />
   else if (path === '/members') screen = <Members />
+  else if (path === '/settings/capture') screen = <CaptureSettings />
+  else if (path === '/review') screen = <Review />
   else screen = <Home />
 
   return (

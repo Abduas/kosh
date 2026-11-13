@@ -1,11 +1,11 @@
-import { ChevronDown, Eye, EyeOff, ScanLine, Search, Settings as SettingsIcon } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, EyeOff, Inbox, ScanLine, Search, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Amount, BigAmount } from '../components/Money'
 import { IconButton } from '../components/ui'
 import { ymd } from '../lib/format'
 import { haptic } from '../lib/look'
-import { useBudgets, useData, useInsights } from '../lib/queries'
+import { useBudgets, useCaptures, useData, useInsights } from '../lib/queries'
 import { clearParam, navigate, useBackToClose, useLocation } from '../lib/router'
 import { openScanner, privacy, togglePrivacy } from '../lib/store'
 import { Log } from './Activity'
@@ -48,6 +48,7 @@ export function Home() {
   const totals = useInsights(r.from, r.to).data?.totals
   const month = ymd(new Date()).slice(0, 7)
   const overall = useBudgets(month).data?.find((b) => b.categoryId === null)
+  const toReview = useCaptures().data?.length ?? 0
 
   // Focus right inside the tap, so iPhone opens the keyboard.
   const openSearch = () => {
@@ -129,6 +130,24 @@ export function Home() {
               <ScanLine className="size-[18px]" /> Scan & pay
             </button>
           </section>
+
+          {toReview > 0 && (
+            <button
+              onClick={() => navigate('/review')}
+              className="press mb-5 flex w-full items-center gap-3 rounded-2xl bg-surface px-4 py-3 text-left"
+            >
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent/12 text-accent">
+                <Inbox className="size-[18px]" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-semibold tracking-tight">
+                  {toReview} {toReview === 1 ? 'payment' : 'payments'} to review
+                </span>
+                <span className="block text-[12px] text-ink-3">From your bank messages</span>
+              </span>
+              <ChevronRight className="size-4 text-ink-3" />
+            </button>
+          )}
         </>
       )}
 

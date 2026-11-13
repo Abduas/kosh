@@ -164,7 +164,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const [categoryId, setCategoryId] = useState<number | null>(editing?.categoryId ?? preset.categoryId ?? null)
   const [personId, setPersonId] = useState<number | null>(editing?.personId ?? preset.personId ?? null)
   const [note, setNote] = useState(editing?.note ?? preset.note ?? '')
-  const [occurredAt, setOccurredAt] = useState(editing?.occurredAt ?? localNow())
+  const [occurredAt, setOccurredAt] = useState(editing?.occurredAt ?? preset.occurredAt ?? localNow())
   const [panel, setPanel] = useState<Panel>('keypad')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [shake, setShake] = useState<string | null>(null)
@@ -176,7 +176,8 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const result = evaluate(expr)
   const hasOp = /[+−×÷]/.test(expr.replace(/[+−×÷]$/, ''))
   const total = Math.round((result ?? 0) * 100)
-  const canSplit = mode === 'expense' && !editing
+  // A captured message is saved as one transaction, linked to it.
+  const canSplit = mode === 'expense' && !editing && !preset.captureId
   const splitting = canSplit && splitWith.length > 0
   const shares = splitting ? splitEqually(total, splitWith.length + (includeMe ? 1 : 0)) : [total]
   const myShare = splitting ? (includeMe ? shares[0] : 0) : total
@@ -258,6 +259,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       note: note.trim(),
       occurredAt,
       ...(upi ? { source: 'upi-scan' as const, payee: upi.vpa } : {}),
+      ...(!editing && preset.captureId ? { captureId: preset.captureId } : {}),
     }
   }
 

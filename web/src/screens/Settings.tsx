@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { Check, Download, KeyRound, LogOut, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
+import { Check, Download, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Sheet } from '../components/Sheet'
@@ -12,6 +12,7 @@ import { privacy, togglePrivacy } from '../lib/store'
 import { payableAccounts } from '../lib/pay'
 import { launchScanEnabled, platform, preferredApp, rememberApp, setLaunchScan, upiApps } from '../lib/upi'
 import { GoogleMark } from './Auth'
+import { ago, useCaptureSetup } from './Capture'
 
 const currencies = [
   { code: 'INR', label: '₹ Indian Rupee' },
@@ -41,6 +42,7 @@ export function Settings() {
   const [install, setInstall] = useState<InstallEvent | null>(null)
   const standalone = matchMedia('(display-mode: standalone)').matches
   const googleAvailable = queryClient.getQueryData<AuthStatus>(['auth'])?.google ?? false
+  const capture = useCaptureSetup().data
 
   // Back from connecting Google.
   useEffect(() => {
@@ -241,6 +243,23 @@ export function Settings() {
           </div>
           <Toggle checked={launchScan} onChange={(v) => { setLaunchScan(v); setLaunchScanState(v) }} label="Open straight to the scanner" />
         </div>
+      </div>
+
+      <SectionTitle title="Auto-capture" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <ListRow
+          onClick={() => navigate('/settings/capture')}
+          left={<RowIcon className="bg-pos/12 text-pos"><MessageSquareText className="size-[18px]" /></RowIcon>}
+          title="Capture from bank SMS"
+          subtitle={
+            !capture?.enabled
+              ? 'Record UPI and card payments without typing'
+              : capture.lastUsedAt
+                ? `On · last message ${ago(capture.lastUsedAt)}`
+                : 'Waiting for your first message'
+          }
+          chevron
+        />
       </div>
 
       <SectionTitle title="Manage" />

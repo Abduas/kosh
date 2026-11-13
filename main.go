@@ -58,7 +58,7 @@ func main() {
 // newServer wires every route. It's separate from main so tests can run the
 // whole API against a temporary database.
 func newServer(db *sql.DB) http.Handler {
-	a := &api{db: db, limiter: newLoginLimiter(), signups: newSignupLimiter()}
+	a := &api{db: db, limiter: newLoginLimiter(), signups: newSignupLimiter(), captures: newCaptureLimiter()}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +118,16 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("DELETE /api/budgets/{id}", a.authed(a.deleteBudget))
 
 	mux.HandleFunc("GET /api/export.csv", a.authed(a.exportCSV))
+
+	// Auto-capture: the phone posts bank messages with its link's token, no session.
+	mux.HandleFunc("POST /api/capture/{token}", a.receiveCapture)
+	mux.HandleFunc("POST /api/capture", a.receiveCapture) // token as "Authorization: Bearer"
+	mux.HandleFunc("GET /api/captures", a.authed(a.listCaptures))
+	mux.HandleFunc("POST /api/captures/{id}/dismiss", a.authed(a.dismissCapture))
+	mux.HandleFunc("GET /api/captures/setup", a.authed(a.getCaptureSetup))
+	mux.HandleFunc("PUT /api/captures/setup", a.authed(a.putCaptureSetup))
+	mux.HandleFunc("DELETE /api/captures/setup", a.authed(a.deleteCaptureSetup))
+	mux.HandleFunc("POST /api/captures/test", a.authed(a.testCapture))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")

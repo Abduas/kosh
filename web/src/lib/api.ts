@@ -13,6 +13,8 @@ export type Prefs = {
   weekStart?: 0 | 1
   /** Account scan & pay uses by default; 0 or missing means none chosen. */
   upiAccountId?: number
+  /** Auto-capture saves a bank message straight away when it knows the payee. Default on. */
+  captureAuto?: boolean
 }
 
 export type User = {
@@ -89,9 +91,53 @@ export type Transaction = {
 }
 
 export type TxInput = Pick<Transaction, 'kind' | 'amount' | 'accountId' | 'toAccountId' | 'categoryId' | 'personId' | 'note' | 'occurredAt'> & {
-  source?: 'manual' | 'upi-scan'
+  source?: 'manual' | 'upi-scan' | 'sms'
   payee?: string
+  /** The reviewed bank message this saves (auto-capture). */
+  captureId?: number
 }
+
+/** How Kosh would file a captured message, from the last payment to the same payee. */
+export type CaptureSuggestion = {
+  known: boolean
+  kind: TxKind
+  categoryId: number | null
+  personId: number | null
+  note: string
+}
+
+/** A bank or UPI message waiting for review. */
+export type Capture = {
+  id: number
+  direction: 'debit' | 'credit'
+  amount: number
+  accountId: number | null
+  bank: string
+  last4: string
+  payee: string
+  merchant: string
+  ref: string
+  occurredAt: string
+  text: string
+  suggestion: CaptureSuggestion
+}
+
+export type CaptureSetup = {
+  enabled: boolean
+  token?: string
+  timezone?: string
+  lastUsedAt: string | null // UTC
+  saved: number
+}
+
+export type CaptureTest =
+  | { recognised: false }
+  | {
+      recognised: true
+      sms: { direction: 'debit' | 'credit'; amount: number; last4: string; bank: string; payee: string; merchant: string; ref: string }
+      accountId: number | null
+      suggestion: CaptureSuggestion
+    }
 
 /** What Kosh remembers about a UPI ID from the last payment to it. */
 export type PayeeMemory = {

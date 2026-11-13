@@ -55,10 +55,13 @@ type txInput struct {
 	OccurredAt  *string `json:"occurredAt"`
 	Source      *string `json:"source"`
 	Payee       *string `json:"payee"`
+	// A reviewed bank message this transaction records (auto-capture).
+	CaptureID *int64 `json:"captureId"`
 }
 
-// sources a client may set. "upi-scan" is a payment started from Kosh's QR scanner.
-var txSources = map[string]bool{"manual": true, "upi-scan": true}
+// sources a client may set. "upi-scan" is a payment started from Kosh's QR
+// scanner; "sms" came from a bank message (auto-capture).
+var txSources = map[string]bool{"manual": true, "upi-scan": true, "sms": true}
 
 // apply merges the input into t. For fields that depend on kind (toAccountId,
 // categoryId, personId) an explicit null in the input clears them, so the
@@ -203,12 +206,34 @@ func (a *api) createTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		respondErr(w, err)
 		return
 	}
-	res, err := insertTx(r.Context(), a.db, uid, t)
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	if in.CaptureID != nil {
+		if err := claimCapture(r.Context(), tx, uid, *in.CaptureID, &t); err != nil {
+			respondErr(w, err)
+			return
+		}
+	}
+	res, err := insertTx(r.Context(), tx, uid, t)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	id, _ := res.LastInsertId()
+	if in.CaptureID != nil {
+		if err := markCaptureSaved(r.Context(), tx, *in.CaptureID, id); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		serverError(w, err)
+		return
+	}
 	created, err := a.getTx(r.Context(), uid, id)
 	if err != nil {
 		serverError(w, err)
@@ -222,9 +247,9 @@ type execer interface {
 }
 
 func insertTx(ctx context.Context, db execer, uid int64, t transaction) (sql.Result, error) {
-	return db.ExecContext(ctx, `INSERT INTO transactions (user_id, kind, amount, account_id, to_account_id, category_id, person_id, note, occurred_at, source, payee)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		uid, t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee)
+	return db.ExecContext(ctx, `INSERT INTO transactions (user_id, kind, amount, account_id, to_account_id, category_id, person_id, note, occurred_at, source, ref, payee)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uid, t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Ref, t.Payee)
 }
 
 // createTransactions saves several transactions at once, all or none. A split
