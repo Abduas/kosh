@@ -77,9 +77,21 @@ func TestCaptureFlow(t *testing.T) {
 	if s := postCapture(t, link, swiggy, "text/plain", 200); s != captureDuplicate {
 		t.Fatalf("repeat: %s", s)
 	}
+	// The phone's offline queue: the one Kosh already has is skipped, the one
+	// it missed lands at the time the phone stamped on it.
+	missed := "Sent Rs.99.00\nFrom HDFC Bank A/C *4521\nTo ZEPTO\nOn 13/11/25\nRef 531711112222\nNot You?"
+	queue := "#kosh 2026-11-13T08:15:00+05:30\n" + swiggy + "\n#kosh 2026-11-13T09:30:00+05:30\n" + missed + "\n"
+	if s := postCapture(t, link, `{"text":`+jsonString(queue)+`}`, "application/json", 200); s != captureReview {
+		t.Fatalf("queue: %s", s)
+	}
 	var list struct {
 		Items []capture `json:"items"`
 	}
+	me.do("GET", "/api/captures", nil, 200, &list)
+	if len(list.Items) != 2 || list.Items[1].Amount != 9900 || list.Items[1].OccurredAt != "2026-11-13T09:30" {
+		t.Fatalf("queued = %+v", list.Items)
+	}
+	me.do("POST", "/api/captures/"+itoa(list.Items[1].ID)+"/dismiss", nil, 204, nil)
 	me.do("GET", "/api/captures", nil, 200, &list)
 	if len(list.Items) != 1 || list.Items[0].AccountID == nil || *list.Items[0].AccountID != hdfc.ID || list.Items[0].Amount != 25000 || list.Items[0].Suggestion.Kind != "expense" {
 		t.Fatalf("review list = %+v", list.Items)
@@ -160,4 +172,29 @@ func mustLoc(name string) *time.Location {
 		panic(err)
 	}
 	return l
+}
+
+func TestSplitCaptureQueue(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	now := time.Date(2026, 11, 16, 15, 0, 0, 0, loc)
+	body := "#kosh 2026-11-16T09:41:07+05:30\nAcct XXXX2742 Dr. INR 750.00 on 16/11/26 to A; UPI: 1\n" +
+		"#kosh 2026-11-16T10:02:00+05:30\n\n" + // a run with no message
+		"#kosh 2026-11-14\nAcct XXXX2742 Cr. INR 20.00\non 14/11/26\n" +
+		"#kosh 2099-01-01T00:00:00Z\nfuture\n"
+	got := splitCaptureQueue(body, now, loc)
+	if len(got) != 3 {
+		t.Fatalf("got %d messages: %+v", len(got), got)
+	}
+	if got[0].text != "Acct XXXX2742 Dr. INR 750.00 on 16/11/26 to A; UPI: 1" || got[0].at.In(loc).Format(localTimeLayout) != "2026-11-16T09:41" {
+		t.Errorf("first: %+v", got[0])
+	}
+	if got[1].text != "Acct XXXX2742 Cr. INR 20.00\non 14/11/26" || got[1].at.In(loc).Format(localTimeLayout) != "2026-11-14T12:00" {
+		t.Errorf("date only: %+v", got[1])
+	}
+	if !got[2].at.Equal(now) {
+		t.Errorf("future time not clamped: %v", got[2].at)
+	}
+	if one := splitCaptureQueue("plain message", now, loc); len(one) != 1 || one[0].text != "plain message" || !one[0].at.Equal(now) {
+		t.Errorf("single message: %+v", one)
+	}
 }

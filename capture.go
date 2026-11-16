@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 	_ "time/tzdata" // the server may have no zoneinfo; users' timezones still work
@@ -157,16 +158,83 @@ func (a *api) receiveCapture(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		loc = time.UTC
 	}
-	status, err := a.recordCapture(r.Context(), uid, text, time.Now().In(loc).Format(localTimeLayout))
-	if err != nil {
-		serverError(w, err)
-		return
+	// One message, or the phone's queue of messages that arrived while it
+	// was offline. The newest one's result is what the phone gets back.
+	var status string
+	statuses := []string{}
+	for _, m := range splitCaptureQueue(text, time.Now(), loc) {
+		if status, err = a.recordCapture(r.Context(), uid, m.text, m.at.In(loc).Format(localTimeLayout)); err != nil {
+			serverError(w, err)
+			return
+		}
+		statuses = append(statuses, status)
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": status})
+	if len(statuses) == 0 {
+		status = captureIgnored
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": status, "statuses": statuses})
+}
+
+// The Kosh shortcut adds each message to a file on the phone and sends the
+// whole file, deleting it once Kosh has it. Without internet the send fails
+// and the file keeps the message, so the next message (or a scheduled run)
+// brings it along. Each message there starts with a line "#kosh <time it
+// arrived>", so it's dated when it happened, not when it reached Kosh.
+// Re-sending one that already arrived is harmless: duplicates are skipped.
+var captureQueueMark = regexp.MustCompile(`(?m)^[ \t]*#kosh\b[ \t]*(.*)$`)
+
+type queuedCapture struct {
+	text string
+	at   time.Time
+}
+
+func splitCaptureQueue(body string, now time.Time, loc *time.Location) []queuedCapture {
+	marks := captureQueueMark.FindAllStringSubmatchIndex(body, -1)
+	if len(marks) == 0 {
+		return []queuedCapture{{strings.TrimSpace(body), now}}
+	}
+	var out []queuedCapture
+	if head := strings.TrimSpace(body[:marks[0][0]]); head != "" {
+		out = append(out, queuedCapture{head, now})
+	}
+	for i, m := range marks {
+		end := len(body)
+		if i+1 < len(marks) {
+			end = marks[i+1][0]
+		}
+		text := strings.TrimSpace(body[m[1]:end])
+		if text == "" { // a run with no message, e.g. a scheduled one
+			continue
+		}
+		out = append(out, queuedCapture{text, queuedAt(strings.TrimSpace(body[m[2]:m[3]]), now, loc)})
+	}
+	return out
+}
+
+// queuedAt reads the time the phone stamped on a message: ISO 8601 with a
+// time, or just a date if the shortcut's date format left the time off.
+func queuedAt(s string, now time.Time, loc *time.Location) time.Time {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z0700", "2006-01-02T15:04Z07:00", "2006-01-02 15:04:05 Z0700"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			if t.After(now) {
+				return now
+			}
+			return t
+		}
+	}
+	if d, err := time.ParseInLocation("2006-01-02", s, loc); err == nil {
+		if today := now.In(loc); d.Year() == today.Year() && d.YearDay() == today.YearDay() {
+			return now
+		}
+		if t := d.Add(12 * time.Hour); t.Before(now) { // the day is right; the hour unknown
+			return t
+		}
+	}
+	return now
 }
 
 func readCaptureText(w http.ResponseWriter, r *http.Request) (string, error) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10)) // room for a day offline
 	if err != nil {
 		return "", err
 	}
