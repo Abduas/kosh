@@ -31,7 +31,8 @@ import (
 //
 //	login  sign in to the account this Google account is connected to, or
 //	       sign up: a Google account nobody has connected gets a new account
-//	link   connect Google to the signed-in account (Settings)
+//	link   connect Google to the signed-in account (Settings). A Google
+//	       account with its own Kosh account is offered to merge (merge.go)
 
 const (
 	signinStateCookie  = "kosh_signin_state"
@@ -277,7 +278,8 @@ func (a *api) linkGoogle(w http.ResponseWriter, r *http.Request, g signedInUser)
 		http.Redirect(w, r, "/settings?google=linked", http.StatusFound)
 		return
 	case err == nil:
-		authFail(w, r, "link", "That Google account is already connected to another Kosh account.")
+		// It has its own Kosh account: offer to bring that one's money here.
+		http.Redirect(w, r, "/settings?merge="+url.QueryEscape(a.merges.add(uid, owner)), http.StatusFound)
 		return
 	case !errors.Is(err, sql.ErrNoRows):
 		serverError(w, err)

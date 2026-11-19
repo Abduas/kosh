@@ -43,6 +43,17 @@ export const dehydrateOptions = {
   shouldDehydrateQuery: (q: { state: { status: string }; queryKey: readonly unknown[] }) => q.state.status === 'success' && q.queryKey[0] !== 'auth',
 }
 
+/**
+ * Drops everything but the sign-in status. Only call it once the signed-in
+ * screens are gone: they read this data and would crash without it.
+ */
+export function clearSignedInData() {
+  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' })
+  try {
+    localStorage.removeItem(CACHE_KEY)
+  } catch {}
+}
+
 export function clearLocalData() {
   queryClient.clear()
   try {

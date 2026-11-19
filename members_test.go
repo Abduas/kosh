@@ -202,10 +202,20 @@ func TestGoogleSignIn(t *testing.T) {
 	if u := pw.google("intent=link", "pwuser"); u.Path != "/settings" || u.Query().Get("google") != "linked" {
 		t.Fatalf("link landed on %s", u)
 	}
-	// Someone else's Google account can't be connected.
-	if u := pw.google("intent=link", "friend"); !strings.Contains(u.Query().Get("authError"), "another") {
-		t.Fatalf("linked someone else's Google: %s", u)
+	// A Google account with its own Kosh account isn't connected; it's offered
+	// to merge, to this account only.
+	u := pw.google("intent=link", "friend")
+	token := u.Query().Get("merge")
+	if u.Path != "/settings" || token == "" {
+		t.Fatalf("linking another account's Google landed on %s", u)
 	}
+	var offer mergeSummary
+	pw.do("GET", "/api/merge/"+token, nil, 200, &offer)
+	if offer.Username != "sara.k" {
+		t.Fatalf("merge offer: %+v", offer)
+	}
+	friend.do("GET", "/api/merge/"+token, nil, 404, nil)
+	friend.do("POST", "/api/merge/"+token, nil, 404, nil)
 	viaGoogle := newClient(t, srv)
 	viaGoogle.google("intent=login", "pwuser")
 	if viaGoogle.me().Username != "pwuser" {

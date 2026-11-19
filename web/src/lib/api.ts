@@ -177,6 +177,41 @@ export type Insights = {
   largest: Transaction[]
 }
 
+/** What Kosh read from a CSV, before importing it. */
+export type ImportPreview = {
+  /** The app the file came from, when Kosh recognises it ('Dime', 'a bank statement'…). */
+  format: string
+  count: number
+  new: number
+  /** Imported from this file before; skipped. */
+  imported: number
+  /** Look like transactions already in Kosh; skipped unless asked. */
+  similar: number
+  similarRows: { at: string; kind: TxKind; amount: number; note: string }[]
+  from: string
+  to: string
+  totals: Partial<Record<TxKind, number>>
+  categories: { key: string; kind: 'expense' | 'income'; name: string; count: number; match: number | null }[]
+  accounts: { name: string; count: number; match: number | null }[]
+  /** Some rows name no account, so one has to be picked. */
+  needsAccount: boolean
+  newPeople: string[]
+  problems: { line: number; reason: string }[]
+  problemCount: number
+}
+
+export type ImportResult = {
+  imported: number
+  skippedImported: number
+  skippedSimilar: number
+  createdCategories: number
+  createdAccounts: number
+  createdPeople: number
+}
+
+/** Another Kosh account that the Google account just connected signs in to. */
+export type MergeOffer = { name: string; username: string; googleEmail: string; transactions: number; accounts: number; people: number }
+
 export type BalancePoint = { date: string; balance: number }
 export type Budget = { id: number; categoryId: number | null; amount: number; spent: number }
 

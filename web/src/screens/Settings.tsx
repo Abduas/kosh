@@ -1,12 +1,12 @@
-import { useMutation } from '@tanstack/react-query'
-import { Check, Download, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Check, Download, Eraser, FileUp, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Sheet } from '../components/Sheet'
 import { Avatar, Button, Field, ListRow, ScreenHeader, SectionTitle, Segmented, TextInput, Toggle, cn } from '../components/ui'
-import { api, type AuthStatus, type Bootstrap, type Prefs, type User } from '../lib/api'
+import { api, type AuthStatus, type Bootstrap, type MergeOffer, type Prefs, type User } from '../lib/api'
 import { accents } from '../lib/look'
-import { clearLocalData, queryClient, useData, useUpdateMe } from '../lib/queries'
+import { invalidateMoney, queryClient, useData, useUpdateMe } from '../lib/queries'
 import { clearParam, navigate } from '../lib/router'
 import { privacy, togglePrivacy } from '../lib/store'
 import { payableAccounts } from '../lib/pay'
@@ -39,10 +39,13 @@ export function Settings() {
   const [upiApp, setUpiApp] = useState(preferredApp)
   const payFrom = payableAccounts(d.accounts)
   const [pwOpen, setPwOpen] = useState(false)
+  const [eraseOpen, setEraseOpen] = useState(false)
   const [install, setInstall] = useState<InstallEvent | null>(null)
   const standalone = matchMedia('(display-mode: standalone)').matches
   const googleAvailable = queryClient.getQueryData<AuthStatus>(['auth'])?.google ?? false
   const capture = useCaptureSetup().data
+  // Connecting a Google account that has its own Kosh account offers to merge it.
+  const [mergeToken, setMergeToken] = useState(() => new URLSearchParams(location.search).get('merge'))
 
   // Back from connecting Google.
   useEffect(() => {
@@ -52,6 +55,7 @@ export function Settings() {
     if (err) toast.error(err)
     clearParam('google')
     clearParam('authError')
+    clearParam('merge')
   }, [])
 
   const unlinkGoogle = useMutation({
@@ -98,9 +102,10 @@ export function Settings() {
 
   const signOut = async () => {
     await api('POST', '/api/auth/logout').catch(() => {})
-    clearLocalData()
-    queryClient.setQueryData<AuthStatus>(['auth'], { needsSetup: false, signedIn: false, google: googleAvailable })
+    // The app swaps to the sign-in screen, then clears the data (App.tsx).
+    // Clearing it here first would crash this screen mid-way: a blank page.
     navigate('/', { replace: true })
+    queryClient.setQueryData<AuthStatus>(['auth'], { needsSetup: false, signedIn: false, google: googleAvailable })
   }
 
   return (
@@ -276,6 +281,8 @@ export function Settings() {
           </>
         )}
         <div className="border-t border-line" />
+        <ListRow onClick={() => navigate('/settings/import')} left={<RowIcon className="bg-accent/12 text-accent"><FileUp className="size-[18px]" /></RowIcon>} title="Import" subtitle="From Dime, another app, or a bank statement" chevron />
+        <div className="border-t border-line" />
         <ListRow onClick={exportCsv} left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
       </div>
 
@@ -332,7 +339,20 @@ export function Settings() {
         <ListRow onClick={signOut} left={<RowIcon className="bg-neg/10 text-neg"><LogOut className="size-[18px]" /></RowIcon>} title={<span className="text-neg">Sign out</span>} />
       </div>
 
+      <SectionTitle title="Start over" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <ListRow onClick={() => setEraseOpen(true)} left={<RowIcon className="bg-neg/10 text-neg"><Eraser className="size-[18px]" /></RowIcon>} title={<span className="text-neg">Erase all my data</span>} subtitle="Every transaction, account and category" />
+      </div>
+
       <p className="mt-8 text-center text-[12px] text-ink-3">Kosh 0.1 · Open source · Your data lives on your server</p>
+
+      <Sheet open={!!mergeToken} onOpenChange={(o) => !o && setMergeToken(null)} title="Merge accounts?">
+        {mergeToken && <MergeForm token={mergeToken} into={d.user} onDone={() => setMergeToken(null)} />}
+      </Sheet>
+
+      <Sheet open={eraseOpen} onOpenChange={setEraseOpen} title="Erase all your data?">
+        {eraseOpen && <EraseForm user={d.user} onExport={exportCsv} />}
+      </Sheet>
 
       <Sheet
         open={pwOpen}
@@ -381,6 +401,91 @@ function PasswordForm({ hasPassword, onDone }: { hasPassword: boolean; onDone: (
         }
       >
         {hasPassword ? 'Change password' : 'Set password'}
+      </Button>
+    </div>
+  )
+}
+
+function MergeForm({ token, into, onDone }: { token: string; into: User; onDone: () => void }) {
+  const offer = useQuery({ queryKey: ['merge', token], queryFn: () => api<MergeOffer>('GET', `/api/merge/${token}`), retry: false, gcTime: 0 })
+  const merge = useMutation({
+    mutationFn: () => api<User>('POST', `/api/merge/${token}`),
+    onSuccess: (user) => {
+      queryClient.setQueryData<Bootstrap>(['bootstrap'], (b) => (b ? { ...b, user } : b))
+      invalidateMoney()
+      toast.success('Merged. Google signs you in to this account now.')
+      onDone()
+    },
+  })
+  if (offer.isError) {
+    return (
+      <div className="space-y-4">
+        <p className="text-[15px] text-ink-2">{offer.error.message}</p>
+        <Button size="lg" variant="secondary" className="w-full" onClick={onDone}>
+          Close
+        </Button>
+      </div>
+    )
+  }
+  const o = offer.data
+  const parts = o ? [`${o.transactions} transaction${o.transactions === 1 ? '' : 's'}`, `${o.accounts} account${o.accounts === 1 ? '' : 's'}`, o.people ? `${o.people} ${o.people === 1 ? 'person' : 'people'}` : ''].filter(Boolean) : []
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 rounded-[20px] bg-surface-2 p-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface">
+          <GoogleMark className="size-5" />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-semibold">{o ? o.googleEmail || `@${o.username}` : 'Loading…'}</p>
+          <p className="truncate text-[13px] text-ink-3">{o ? `@${o.username} · ${parts.join(', ')}` : ' '}</p>
+        </div>
+      </div>
+      <p className="text-[15px] text-ink-2">
+        This Google account already has its own Kosh account. Merging moves everything in it to <b className="text-ink">@{into.username}</b>, and Google signs you in here from then on.
+      </p>
+      <p className="text-[13px] text-ink-3">Accounts, categories and people with the same name become one. This account’s balances and settings stay. @{o?.username ?? '…'} is then removed.</p>
+      <div className="flex gap-2">
+        <Button size="lg" variant="secondary" onClick={onDone}>
+          Not now
+        </Button>
+        <Button size="lg" className="flex-1" disabled={!o} loading={merge.isPending} onClick={() => merge.mutate()}>
+          Merge
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function EraseForm({ user, onExport }: { user: User; onExport: () => void }) {
+  const [typed, setTyped] = useState('')
+  const erase = useMutation({
+    mutationFn: () => api<User>('POST', '/api/me/erase', { username: typed }),
+    onSuccess: (u) => {
+      // Back to Home, which becomes first-run setup once the fresh data loads.
+      navigate('/', { replace: true })
+      queryClient.setQueryData<Bootstrap>(['bootstrap'], (b) => (b ? { ...b, user: u } : b))
+      invalidateMoney()
+      toast.success('Erased. Kosh is fresh again.')
+    },
+  })
+  const ok = typed.trim().replace(/^@/, '').toLowerCase() === user.username.toLowerCase()
+  return (
+    <div className="space-y-4">
+      <p className="text-[15px] text-ink-2">
+        Deletes every transaction, account, category, person, budget and bank message in <b className="text-ink">@{user.username}</b>. You start again with a Cash account and the starter categories.
+      </p>
+      <p className="text-[13px] text-ink-3">
+        Your sign-in, Google and auto-capture link stay. This can’t be undone, so{' '}
+        <button type="button" onClick={onExport} className="font-semibold text-accent">
+          export a CSV
+        </button>{' '}
+        first if you might want it back.
+      </p>
+      <Field label={`Type ${user.username} to confirm`}>
+        <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={user.username} />
+      </Field>
+      <Button size="lg" variant="danger" className="w-full" disabled={!ok} loading={erase.isPending} onClick={() => erase.mutate()}>
+        Erase everything
       </Button>
     </div>
   )

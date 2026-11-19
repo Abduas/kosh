@@ -6,6 +6,7 @@ import { INDIAN_BANKS, MoneyInput, WALLETS } from '../components/Forms'
 import { Button, Glyph, cn } from '../components/ui'
 import { api, errorMessage } from '../lib/api'
 import { invalidateMoney, useData, useUpdateMe } from '../lib/queries'
+import { navigate } from '../lib/router'
 
 type Pick = { name: string; color: string; kind: 'bank' | 'wallet' }
 
@@ -45,6 +46,12 @@ export function Onboarding() {
   }
 
   const skip = () => updateMe.mutate({ prefs: { onboarded: true } })
+
+  // Bring history from another app first; accounts can be added after.
+  const importFirst = () => {
+    navigate('/settings/import', { replace: true })
+    skip()
+  }
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[520px] flex-col px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-[max(env(safe-area-inset-top),24px)]">
@@ -98,6 +105,9 @@ export function Onboarding() {
             <Button size="lg" className="mt-auto w-full" onClick={() => setStep(1)}>
               Continue <ArrowRight className="size-5" />
             </Button>
+            <button onClick={importFirst} className="press mt-3 self-center rounded-full px-3 py-2 text-[14px] font-semibold text-ink-2">
+              Coming from Dime or another app? <span className="text-accent">Import</span>
+            </button>
           </motion.div>
         ) : (
           <motion.div key="balances" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }} className="flex flex-1 flex-col">

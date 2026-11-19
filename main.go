@@ -58,7 +58,7 @@ func main() {
 // newServer wires every route. It's separate from main so tests can run the
 // whole API against a temporary database.
 func newServer(db *sql.DB) http.Handler {
-	a := &api{db: db, limiter: newLoginLimiter(), signups: newSignupLimiter(), captures: newCaptureLimiter()}
+	a := &api{db: db, limiter: newLoginLimiter(), signups: newSignupLimiter(), captures: newCaptureLimiter(), merges: newMergeOffers()}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +84,9 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", a.authed(a.bootstrap))
 	mux.HandleFunc("PATCH /api/me", a.authed(a.updateMe))
 	mux.HandleFunc("DELETE /api/me/google", a.authed(a.unlinkGoogle))
+	mux.HandleFunc("POST /api/me/erase", a.authed(a.eraseMe))
+	mux.HandleFunc("GET /api/merge/{token}", a.authed(a.getMerge))
+	mux.HandleFunc("POST /api/merge/{token}", a.authed(a.doMerge))
 
 	// The owner sees who has signed up and can remove accounts.
 	mux.HandleFunc("GET /api/members", a.ownerOnly(a.listMembers))
@@ -118,6 +121,8 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("DELETE /api/budgets/{id}", a.authed(a.deleteBudget))
 
 	mux.HandleFunc("GET /api/export.csv", a.authed(a.exportCSV))
+	mux.HandleFunc("POST /api/import/preview", a.authed(a.previewImport))
+	mux.HandleFunc("POST /api/import", a.authed(a.commitImport))
 
 	// Auto-capture: the phone posts bank messages with its link's token, no session.
 	mux.HandleFunc("POST /api/capture/{token}", a.receiveCapture)

@@ -16,6 +16,7 @@ type api struct {
 	limiter  *limiter // failed logins
 	signups  *limiter // new accounts
 	captures *limiter // messages from each capture link
+	merges   *mergeOffers
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

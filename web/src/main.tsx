@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { dehydrate } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { App } from './App'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { nativeFeel } from './lib/native'
 import { CACHE_BUSTER, CACHE_KEY, clearLocalData, dehydrateOptions, persister, queryClient } from './lib/queries'
 import { clearParam } from './lib/router'
@@ -35,7 +36,9 @@ createRoot(document.getElementById('root')!).render(
       // Show the saved copy instantly, then refresh everything from the server.
       onSuccess={() => queryClient.invalidateQueries()}
     >
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </PersistQueryClientProvider>
   </StrictMode>,
 )

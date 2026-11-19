@@ -9,7 +9,7 @@ import { cn } from './components/ui'
 import { api, type AuthStatus } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
-import { clearLocalData, useBootstrap } from './lib/queries'
+import { clearLocalData, clearSignedInData, useBootstrap } from './lib/queries'
 import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
 import { closeScanner, composer, openComposer, openScanner, scanner } from './lib/store'
 import { launchScanEnabled, readPending } from './lib/upi'
@@ -25,6 +25,7 @@ import { People, PersonDetail } from './screens/People'
 import { Settings } from './screens/Settings'
 import { CaptureSettings } from './screens/Capture'
 import { Review } from './screens/Review'
+import { ImportScreen } from './screens/Import'
 
 export function App() {
   const status = useQuery({
@@ -41,6 +42,14 @@ export function App() {
     window.addEventListener('kosh:signed-out', onSignedOut)
     return () => window.removeEventListener('kosh:signed-out', onSignedOut)
   }, [status])
+
+  // Signed out (from Settings, or a session that expired): forget the
+  // previous person's data. This runs after the sign-in screen has replaced
+  // the app, so no screen is left reading data that's gone.
+  const signedOut = status.data?.signedIn === false
+  useEffect(() => {
+    if (signedOut) clearSignedInData()
+  }, [signedOut])
 
   const prefs = boot.data?.user.prefs
   useLook(prefs)
@@ -202,6 +211,7 @@ function Shell() {
   else if (path === '/settings') screen = <Settings />
   else if (path === '/members') screen = <Members />
   else if (path === '/settings/capture') screen = <CaptureSettings />
+  else if (path === '/settings/import') screen = <ImportScreen />
   else if (path === '/review') screen = <Review />
   else screen = <Home />
 
