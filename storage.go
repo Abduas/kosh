@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -17,16 +16,15 @@ import (
 
 // Files people add (photos and PDFs of vehicle papers) live in the
 // project's bucket, connected in Sideyard's Storage tab; SQLite only keeps
-// their key, name, type and size. The bucket stays private: files are opened
-// through short-lived presigned links.
+// their key, name, type and size. The bucket stays private: the app streams
+// files to the phone, which keeps copies of current papers for offline use.
 //
 // Without a bucket Kosh still works: documents keep their dates and details,
 // just not a copy of the file.
 
 type bucket struct {
-	name    string
-	client  *s3.Client
-	presign *s3.PresignClient
+	name   string
+	client *s3.Client
 }
 
 var (
@@ -56,7 +54,7 @@ func fileBucket() *bucket {
 				o.UsePathStyle = true
 			}
 		})
-		theBucket = &bucket{name: name, client: client, presign: s3.NewPresignClient(client)}
+		theBucket = &bucket{name: name, client: client}
 	})
 	return theBucket
 }
@@ -75,24 +73,18 @@ func (b *bucket) put(ctx context.Context, key, contentType string, body io.Reade
 	return err
 }
 
+// get opens key for reading; the caller closes it.
+func (b *bucket) get(ctx context.Context, key string) (io.ReadCloser, int64, error) {
+	out, err := b.client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(b.name), Key: aws.String(key)})
+	if err != nil {
+		return nil, 0, err
+	}
+	return out.Body, aws.ToInt64(out.ContentLength), nil
+}
+
 func (b *bucket) remove(ctx context.Context, key string) error {
 	_, err := b.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(b.name), Key: aws.String(key)})
 	return err
-}
-
-// link is a URL that opens the file for a few minutes. inline shows it in the
-// browser rather than downloading it.
-func (b *bucket) link(ctx context.Context, key, fileName, contentType string) (string, error) {
-	req, err := b.presign.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket:                     aws.String(b.name),
-		Key:                        aws.String(key),
-		ResponseContentType:        aws.String(contentType),
-		ResponseContentDisposition: aws.String(`inline; filename="` + asciiName(fileName) + `"`),
-	}, s3.WithPresignExpires(10*time.Minute))
-	if err != nil {
-		return "", err
-	}
-	return req.URL, nil
 }
 
 // asciiName keeps a file name safe inside a Content-Disposition header.

@@ -5,13 +5,14 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { BigAmount } from '../components/Money'
 import { Sheet } from '../components/Sheet'
 import { VehicleGlyph } from '../components/VehicleForms'
+import { RemindersPrompt } from '../components/Reminders'
 import { Button, Card, Chip, EmptyState, Glyph, IconButton, ListRow, ScreenHeader, SectionTitle, Skeleton, cn } from '../components/ui'
-import type { Garage as GarageData, Vehicle, VehicleDoc, VehicleLog } from '../lib/api'
+import type { Garage as GarageData, ServiceRule, Vehicle, VehicleDoc, VehicleLog } from '../lib/api'
 import { dayLabel, money, monthPeriod, ymd } from '../lib/format'
 import { haptic } from '../lib/look'
-import { useData, useGarage, useInsights } from '../lib/queries'
+import { useData, useGarage, useInsights, useSaveGarage } from '../lib/queries'
 import { linkHandler, navigate } from '../lib/router'
-import { openGarageSheet } from '../lib/store'
+import { openGarageSheet, showPaper } from '../lib/store'
 import {
   currentDocs,
   docLabel,
@@ -30,7 +31,11 @@ import {
   mileage,
   needsAttention,
   rememberSpace,
+  ruleDue,
+  ruleEvery,
+  ruleTone,
   shortDay,
+  suggestedRules,
   stateTone,
   vehicleSubtitle,
   type Space,
@@ -225,6 +230,14 @@ function VehicleCard({ v, g }: { v: Vehicle; g: GarageData }) {
             </Pill>
           )
         })}
+        {g.services
+          .filter((r) => r.vehicleId === v.id && (r.state === 'overdue' || r.state === 'soon'))
+          .slice(0, 1)
+          .map((r) => (
+            <Pill key={r.id} tone={r.state === 'overdue' ? 'neg' : 'warn'} icon={<Wrench className="size-3.5" />}>
+              {r.title} · {ruleDue(r).replace(/^In /, '').replace(/^Overdue by /, '−')}
+            </Pill>
+          ))}
         {next && st && st.state === 'ok' && <Pill>Next: {docTypes[next.type].short} · {shortDay(next.expiresOn!)}</Pill>}
       </div>
     </a>
@@ -286,7 +299,7 @@ export function VehicleDetail({ id }: { id: number }) {
       <div className="grid grid-cols-3 gap-2">
         <Stat label="Odometer" value={v.odometer != null ? km(v.odometer) : '—'} sub={perDay ? `~${Math.round(perDay)} km a day` : v.odometerOn ? dayLabel(v.odometerOn) : undefined} onClick={() => openGarageSheet({ kind: 'log', preset: { kind: 'odometer', vehicleId: id } })} />
         <Stat label="Mileage" value={m ? `${m.latest.toFixed(1)}` : '—'} sub={m ? `km/${v.fuel === 'ev' ? 'kWh' : 'L'} · avg ${m.average.toFixed(1)}` : 'After 2 full fills'} />
-        <Stat label="This year" value={money(spentYear, { compact: true })} sub={`${logs.filter((l) => l.occurredOn >= year && l.amount > 0).length} costs`} />
+        <Stat label="This year" value={money(spentYear, { compact: true })} sub={(() => { const n = logs.filter((l) => l.occurredOn >= year && l.amount > 0).length; return `${n} ${n === 1 ? 'cost' : 'costs'}` })()} />
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
@@ -324,6 +337,8 @@ export function VehicleDetail({ id }: { id: number }) {
         ))}
       </div>
 
+      <ServiceSection v={v} rules={g.services.filter((r) => r.vehicleId === id)} />
+
       {lastService && (
         <p className="mt-3 px-1 text-[13px] text-ink-3">
           Last service: {logTitle(lastService)}, {dayLabel(lastService.occurredOn)}
@@ -340,6 +355,70 @@ export function VehicleDetail({ id }: { id: number }) {
         <LogList logs={logs} vehicles={g.vehicles} />
       )}
     </div>
+  )
+}
+
+function ServiceSection({ v, rules }: { v: Vehicle; rules: ServiceRule[] }) {
+  const save = useSaveGarage<ServiceRule>('service-rules')
+  const [adding, setAdding] = useState(false)
+  const addSuggested = async () => {
+    setAdding(true)
+    try {
+      for (const r of suggestedRules(v.kind, v.fuel)) await save.mutateAsync({ body: { vehicleId: v.id, ...r } })
+      haptic(15)
+    } finally {
+      setAdding(false)
+    }
+  }
+  return (
+    <>
+      <SectionTitle
+        title="Service"
+        action={
+          rules.length > 0 ? (
+            <button onClick={() => openGarageSheet({ kind: 'rule', vehicleId: v.id })} className="text-[13px] font-semibold text-accent">
+              Add
+            </button>
+          ) : undefined
+        }
+      />
+      {rules.length === 0 ? (
+        <Card className="p-4">
+          <p className="text-[15px] font-semibold tracking-tight">When is the next service?</p>
+          <p className="mt-0.5 text-[13px] text-ink-3">Set how often oil and service are due, by km or months. Kosh works out the next one from your logs and reminds you.</p>
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" loading={adding} onClick={addSuggested}>
+              Use the usual
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => openGarageSheet({ kind: 'rule', vehicleId: v.id })}>
+              Set my own
+            </Button>
+          </div>
+          <p className="mt-2 text-[11px] text-ink-3">
+            The usual for a {v.fuel === 'ev' ? 'electric vehicle' : v.kind}: {suggestedRules(v.kind, v.fuel).map((r) => `${r.title.toLowerCase()} ${ruleEvery(r).toLowerCase()}`).join('; ')}.
+          </p>
+        </Card>
+      ) : (
+        <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+          {rules.map((r, i) => (
+            <div key={r.id}>
+              {i > 0 && <div className="ml-[68px] h-px bg-line" />}
+              <ListRow
+                left={<Glyph icon={/oil/i.test(r.title) ? '🛢️' : /tyre|tire/i.test(r.title) ? '🛞' : /chain/i.test(r.title) ? '⛓️' : '🔧'} color={r.state === 'overdue' ? '#EF4444' : r.state === 'soon' ? '#F59E0B' : '#3B82F6'} />}
+                title={r.title}
+                subtitle={[ruleEvery(r), r.lastOn ? `last ${shortDay(r.lastOn)}${r.lastKm != null ? ` at ${km(r.lastKm)}` : ''}` : null].filter(Boolean).join(' · ')}
+                right={<span className={cn('text-[13px] font-semibold', ruleTone[r.state])}>{ruleDue(r)}</span>}
+                onClick={() =>
+                  r.state === 'unknown'
+                    ? openGarageSheet({ kind: 'log', preset: { kind: 'service', vehicleId: v.id } })
+                    : openGarageSheet({ kind: 'rule', vehicleId: v.id, editing: r })
+                }
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -365,20 +444,32 @@ function QuickAction({ icon, label, onClick }: { icon: ReactNode; label: string;
 
 function DocRow({ doc, vehicle, showVehicle }: { doc: VehicleDoc; vehicle?: Vehicle; showVehicle?: boolean }) {
   const s = docStatus(doc)
-  return (
+  const row = (
     <ListRow
       left={showVehicle ? <VehicleGlyph vehicle={vehicle} /> : <Glyph icon={docTypes[doc.type].icon} color={s.state === 'expired' ? '#EF4444' : s.state === 'soon' ? '#F59E0B' : '#22C55E'} />}
       title={showVehicle ? `${docLabel(doc)}${vehicle ? ` · ${vehicle.name}` : ''}` : docLabel(doc)}
       subtitle={[doc.expiresOn ? `${s.days < 0 ? 'Expired' : 'Expires'} ${shortDay(doc.expiresOn)}` : "Doesn't expire", doc.issuer, doc.number].filter(Boolean).join(' · ')}
-      right={
-        <span className="flex items-center gap-1.5">
-          {doc.fileName && <FileText className="size-3.5 text-ink-3" />}
-          <span className={cn('text-[13px] font-semibold', stateTone[s.state])}>{s.state === 'ok' || s.state === 'lifetime' ? '' : dueText(doc)}</span>
-        </span>
-      }
+      right={s.state === 'ok' || s.state === 'lifetime' ? undefined : <span className={cn('text-[13px] font-semibold', stateTone[s.state])}>{dueText(doc)}</span>}
       onClick={() => openGarageSheet({ kind: 'doc', editing: doc })}
-      chevron
+      chevron={!doc.fileId}
     />
+  )
+  if (!doc.fileId) return row
+  // With a file: a Show button beside the row opens it full screen, offline too.
+  return (
+    <div className="flex items-center">
+      <div className="min-w-0 flex-1">{row}</div>
+      <button
+        onClick={() => {
+          haptic(6)
+          showPaper(doc)
+        }}
+        aria-label={`Show ${docLabel(doc)}`}
+        className="press mr-3 h-8 shrink-0 rounded-full bg-accent/10 px-3 text-[13px] font-semibold text-accent"
+      >
+        Show
+      </button>
+    </div>
   )
 }
 
@@ -486,6 +577,7 @@ export function Due() {
     { title: 'Later', items: list.filter((d) => d.status.state === 'ok') },
   ]
   const vById = new Map(g.vehicles.map((v) => [v.id, v]))
+  const services = g.services.filter((r) => (r.state === 'overdue' || r.state === 'soon') && !vById.get(r.vehicleId)?.archived)
   // Vehicles missing insurance or PUC: worth adding, so they can be reminded.
   const missing = g.vehicles
     .filter((v) => !v.archived)
@@ -494,7 +586,8 @@ export function Due() {
   return (
     <div>
       <ScreenHeader title="Due" subtitle={list.length ? `Next: ${dueText(list.find((d) => d.expiresOn! >= today) ?? list[0]).toLowerCase()}` : 'Renewals, soonest first'} />
-      {list.length === 0 && missing.length === 0 && (
+      <RemindersPrompt />
+      {list.length === 0 && missing.length === 0 && services.length === 0 && (
         <Card>
           <EmptyState icon={<CalendarCheck className="size-7" />} title="Nothing to renew" body="Add insurance, PUC and tax papers, and they show up here before they expire." />
         </Card>
@@ -514,6 +607,29 @@ export function Due() {
               </div>
             </div>
           ),
+      )}
+      {services.length > 0 && (
+        <>
+          <SectionTitle title="Service" />
+          <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+            {services.map((r, i) => {
+              const v = vById.get(r.vehicleId)
+              return (
+                <div key={r.id}>
+                  {i > 0 && <div className="ml-[68px] h-px bg-line" />}
+                  <ListRow
+                    left={<VehicleGlyph vehicle={v} />}
+                    title={`${r.title} · ${v?.name ?? ''}`}
+                    subtitle={ruleEvery(r)}
+                    right={<span className={cn('text-[13px] font-semibold', ruleTone[r.state])}>{ruleDue(r)}</span>}
+                    onClick={() => navigate(`/garage/${r.vehicleId}`)}
+                    chevron
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
       {missing.length > 0 && (
         <>
@@ -541,6 +657,7 @@ export function Due() {
 // ---- Papers: every document, by vehicle ----
 
 export function Papers() {
+  const owner = useData().user.isOwner
   const g = useGarageData().data
   const [past, setPast] = useState(false)
   if (!g) return <Skeleton className="mt-16 h-40 w-full rounded-[22px]" />
@@ -553,7 +670,7 @@ export function Papers() {
     <div>
       <ScreenHeader
         title="Papers"
-        subtitle="Insurance, PUC, tax, RC and your licence"
+        subtitle={g.documents.some((d) => d.fileId) ? 'Tap Show to open one, even with no signal' : 'Insurance, PUC, tax, RC and your licence'}
         actions={
           <IconButton label="Add a paper" onClick={() => openGarageSheet({ kind: 'doc', preset: { scan: true } })} className="bg-surface">
             <Plus className="size-5" />
@@ -591,6 +708,13 @@ export function Papers() {
         <button onClick={() => openGarageSheet({ kind: 'doc', preset: { type: 'licence', scan: true } })} className="press mt-4 flex w-full items-center justify-center gap-1.5 py-2 text-[14px] font-semibold text-accent">
           <Plus className="size-4" strokeWidth={2.6} /> Add your driving licence
         </button>
+      )}
+      {!g.storage && g.documents.length > 0 && (
+        <p className="mt-5 px-1 text-[12px] text-ink-3">
+          {owner
+            ? "Kosh reads dates from scans but can't keep the files yet. Connect a bucket in Sideyard's Storage tab for this project to keep copies you can show offline."
+            : "This Kosh can't keep copies of files yet; ask its owner to connect storage."}
+        </p>
       )}
       {older.length > 0 && (
         <>

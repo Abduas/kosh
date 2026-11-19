@@ -1,14 +1,14 @@
 import { Archive, ArchiveRestore, Eye, FileText, KeyRound, LoaderCircle, Paperclip, ScanText, Sparkles, Trash2, X } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import type { Account, DocType, FuelKind, LogKind, Vehicle, VehicleDoc, VehicleKind, VehicleLog } from '../lib/api'
+import type { Account, DocType, FuelKind, LogKind, ServiceRule, Vehicle, VehicleDoc, VehicleKind, VehicleLog } from '../lib/api'
 import { INSURERS } from '../lib/docparse'
 import { PasswordNeeded, readDocument, shrinkForUpload, type ReadResult } from '../lib/docread'
 import { money, ymd } from '../lib/format'
 import { haptic } from '../lib/look'
 import { queryClient, uploadDocFile, useData, useDeleteGarage, useGarage, useSaveGarage } from '../lib/queries'
 import { navigate } from '../lib/router'
-import { closeGarageSheet, garageSheet, openGarageSheet, type GarageSheet } from '../lib/store'
+import { closeGarageSheet, garageSheet, openGarageSheet, showPaper, type GarageSheet } from '../lib/store'
 import {
   defaultExpiry,
   docLabel,
@@ -47,13 +47,16 @@ export function GarageSheets() {
           ? s.editing ? `Edit ${logKinds[s.editing.kind].label.toLowerCase()}` : logKinds[s.preset?.kind ?? 'fuel'].label
           : s?.kind === 'doc'
             ? s.editing ? docLabel(s.editing) : s.preset?.renew ? `Renew ${docTypes[s.preset.renew.type].short}` : 'Add a paper'
-            : ''
+            : s?.kind === 'rule'
+              ? s.editing ? 'Edit schedule' : 'Service schedule'
+              : ''
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={title}>
       {s?.kind === 'menu' && <AddMenu vehicleId={s.vehicleId} />}
       {s?.kind === 'vehicle' && <VehicleForm key={key} vehicle={s.editing} />}
       {s?.kind === 'log' && <LogForm key={key} log={s.editing} preset={s.preset} />}
       {s?.kind === 'doc' && <DocForm key={key} doc={s.editing} preset={s.preset} />}
+      {s?.kind === 'rule' && <RuleForm key={key} vehicleId={s.vehicleId} rule={s.editing} />}
     </Sheet>
   )
 }
@@ -142,7 +145,7 @@ function NumberInput({ value, onChange, placeholder, suffix, decimal }: { value:
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value.replace(decimal ? /[^0-9.]/g : /[^0-9]/g, ''))}
-        className={cn('font-semibold tnum', suffix && 'pr-12')}
+        className={cn('font-semibold tnum', suffix && (suffix.length > 3 ? 'pr-20' : 'pr-12'))}
       />
       {suffix && <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[14px] font-semibold text-ink-3">{suffix}</span>}
     </div>
@@ -369,7 +372,14 @@ function LogForm({ log, preset }: { log?: VehicleLog; preset?: { vehicleId?: num
     )
   }
 
-  const titles = kind === 'service' ? serviceTitles : kind === 'expense' ? expenseTitles : []
+  const ruleTitles = (garage?.services ?? []).filter((r) => r.vehicleId === vehicleId).map((r) => r.title)
+  const titles = kind === 'service' ? [...new Set([...ruleTitles, ...serviceTitles])] : kind === 'expense' ? expenseTitles : []
+  // A service can cover several jobs: "General service, Oil change".
+  const picked = title.split(',').map((t) => t.trim()).filter(Boolean)
+  const toggleTitle = (t: string) => {
+    if (kind !== 'service') return setTitle(title === t ? '' : t)
+    setTitle((picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]).join(', '))
+  }
 
   return (
     <div className="space-y-5">
@@ -398,7 +408,7 @@ function LogForm({ log, preset }: { log?: VehicleLog; preset?: { vehicleId?: num
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={titles[0]} maxLength={80} />
           <div className="no-scrollbar -mx-6 mt-2 flex gap-1.5 overflow-x-auto px-6">
             {titles.map((t) => (
-              <Chip key={t} active={title === t} onClick={() => setTitle(t)} className="h-8">
+              <Chip key={t} active={kind === 'service' ? picked.includes(t) : title === t} onClick={() => toggleTitle(t)} className="h-8">
                 {t}
               </Chip>
             ))}
@@ -433,6 +443,50 @@ function LogForm({ log, preset }: { log?: VehicleLog; preset?: { vehicleId?: num
         )}
         <Button size="lg" className="flex-1" loading={save.isPending} onClick={submit} disabled={kind === 'odometer' ? !odo : false}>
           {log ? 'Save' : kind === 'odometer' ? 'Save reading' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ---- Service schedules ----
+
+function RuleForm({ vehicleId, rule }: { vehicleId: number; rule?: ServiceRule }) {
+  const save = useSaveGarage<ServiceRule>('service-rules')
+  const del = useDeleteGarage('service-rules')
+  const [title, setTitle] = useState(rule?.title ?? 'Oil change')
+  const [everyKm, setEveryKm] = useState(rule?.everyKm ? String(rule.everyKm) : '')
+  const [everyMonths, setEveryMonths] = useState(rule?.everyMonths ? String(rule.everyMonths) : '')
+  const submit = () =>
+    save.mutate(
+      { id: rule?.id, body: { vehicleId, title: title.trim(), everyKm: everyKm ? Number(everyKm) : null, everyMonths: everyMonths ? Number(everyMonths) : null } },
+      { onSuccess: () => { haptic(15); toast.success('Schedule saved'); closeGarageSheet() } },
+    )
+  return (
+    <div className="space-y-5">
+      <Field label="What">
+        <TextInput value={title} onChange={(e) => setTitle(e.target.value.replace(',', ''))} maxLength={40} />
+        <div className="no-scrollbar -mx-6 mt-2 flex gap-1.5 overflow-x-auto px-6">
+          {serviceTitles.slice(0, 6).map((t) => (
+            <Chip key={t} active={title === t} onClick={() => setTitle(t)} className="h-8">
+              {t}
+            </Chip>
+          ))}
+        </div>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Every">
+          <NumberInput value={everyKm} onChange={setEveryKm} placeholder="3000" suffix="km" />
+        </Field>
+        <Field label="Or every">
+          <NumberInput value={everyMonths} onChange={setEveryMonths} placeholder="6" suffix="months" />
+        </Field>
+      </div>
+      <p className="px-1 text-[12px] text-ink-3">Whichever comes first. Kosh counts from the last service log that mentions "{title || '…'}", and reminds you before the next one.</p>
+      <div className="flex gap-2 pt-1">
+        {rule && <ConfirmDelete label="" busy={del.isPending} onConfirm={() => del.mutate(rule.id, { onSuccess: () => { toast.success('Schedule deleted'); closeGarageSheet() } })} />}
+        <Button size="lg" className="flex-1" loading={save.isPending} onClick={submit} disabled={!title.trim() || (!everyKm && !everyMonths)}>
+          Save
         </Button>
       </div>
     </div>
@@ -620,9 +674,9 @@ function DocForm({ doc, preset }: { doc?: VehicleDoc; preset?: { vehicleId?: num
           <FileText className="size-5 shrink-0 text-ink-3" />
           <span className="min-w-0 flex-1 truncate text-[14px] font-medium">{file?.name ?? doc?.fileName}</span>
           {hasStoredFile && (
-            <a href={`/api/vehicle-documents/${doc!.id}/file`} target="_blank" rel="noopener" className="press grid size-8 place-items-center rounded-full bg-surface text-ink-2" aria-label="View file">
+            <button onClick={() => showPaper(doc!)} className="press grid size-8 place-items-center rounded-full bg-surface text-ink-2" aria-label="View file">
               <Eye className="size-4" />
-            </a>
+            </button>
           )}
           <button
             aria-label="Remove file"

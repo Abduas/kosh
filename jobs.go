@@ -16,6 +16,8 @@ import (
 // A returned error fails the run; the returned text is shown as its output.
 var jobs = map[string]func(ctx context.Context, db *sql.DB) (string, error){
 	"cleanup-sessions": cleanupSessions,
+	// Push reminders for papers and services. Schedule: CRON_TZ=Asia/Kolkata 0 9 * * *
+	"vehicle-reminders": vehicleReminders,
 }
 
 // cleanupSessions deletes expired sign-ins. Suggested schedule: daily.

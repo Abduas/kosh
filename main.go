@@ -127,6 +127,19 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("PUT /api/vehicle-documents/{id}/file", a.authed(a.uploadDocFile))
 	mux.HandleFunc("GET /api/vehicle-documents/{id}/file", a.authed(a.openDocFile))
 	mux.HandleFunc("DELETE /api/vehicle-documents/{id}/file", a.authed(a.deleteDocFile))
+	mux.HandleFunc("POST /api/service-rules", a.authed(a.createServiceRule))
+	mux.HandleFunc("PATCH /api/service-rules/{id}", a.authed(a.updateServiceRule))
+	mux.HandleFunc("DELETE /api/service-rules/{id}", a.authed(a.deleteServiceRule))
+
+	// Reminders: Web Push to phones, and a calendar feed (no session: the
+	// calendar app has only the link).
+	mux.HandleFunc("GET /api/push", a.authed(a.pushStatus))
+	mux.HandleFunc("POST /api/push/subscribe", a.authed(a.subscribePush))
+	mux.HandleFunc("POST /api/push/unsubscribe", a.authed(a.unsubscribePush))
+	mux.HandleFunc("POST /api/push/test", a.authed(a.testPush))
+	mux.HandleFunc("POST /api/calendar", a.authed(a.calendarLink))
+	mux.HandleFunc("DELETE /api/calendar", a.authed(a.resetCalendar))
+	mux.HandleFunc("GET /api/calendar/{token}", a.calendarFeed)
 
 	mux.HandleFunc("GET /api/insights", a.authed(a.insights))
 	mux.HandleFunc("GET /api/insights/balance", a.authed(a.balanceHistory))

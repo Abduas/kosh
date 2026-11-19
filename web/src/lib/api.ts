@@ -165,6 +165,8 @@ export type VehicleDoc = {
   fileName: string
   fileType: string
   fileSize: number
+  /** Changes with every upload; empty without a file. */
+  fileId: string
   transactionId: number | null
   accountId: number | null
   createdAt: string
@@ -181,7 +183,25 @@ export type VehicleLink = {
   title: string
 }
 
-export type Garage = { vehicles: Vehicle[]; logs: VehicleLog[]; documents: VehicleDoc[]; storage: boolean }
+/** A service schedule, with what's due worked out by the server. */
+export type ServiceRule = {
+  id: number
+  vehicleId: number
+  title: string
+  everyKm: number | null
+  everyMonths: number | null
+  lastOn: string | null
+  lastKm: number | null
+  nextKm: number | null
+  /** To go; negative means past it. */
+  kmLeft: number | null
+  nextOn: string | null
+  /** When you'll likely reach nextKm, from how much you drive. */
+  guessOn: string | null
+  state: 'overdue' | 'soon' | 'ok' | 'unknown'
+}
+
+export type Garage = { vehicles: Vehicle[]; logs: VehicleLog[]; documents: VehicleDoc[]; services: ServiceRule[]; storage: boolean }
 
 /** How Kosh would file a captured message, from the last payment to the same payee. */
 export type CaptureSuggestion = {

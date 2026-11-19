@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -69,6 +70,7 @@ type vehicleDoc struct {
 	FileName      string  `json:"fileName"`
 	FileType      string  `json:"fileType"`
 	FileSize      int64   `json:"fileSize"`
+	FileID        string  `json:"fileId"` // changes with every upload; "" without a file
 	TransactionID *int64  `json:"transactionId"`
 	AccountID     *int64  `json:"accountId"`
 	CreatedAt     string  `json:"createdAt"`
@@ -184,6 +186,9 @@ func (a *api) loadVehicleDocs(ctx context.Context, uid, onlyID int64) ([]vehicle
 			&d.fileKey, &d.FileName, &d.FileType, &d.FileSize, &d.TransactionID, &d.AccountID, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
+		if d.fileKey != "" {
+			d.FileID = strings.TrimSuffix(filepath.Base(d.fileKey), filepath.Ext(d.fileKey))[:12]
+		}
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -208,7 +213,12 @@ func (a *api) listVehicles(w http.ResponseWriter, r *http.Request, uid int64) {
 		serverError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vehicles": vehicles, "logs": logs, "documents": docs, "storage": fileBucket() != nil})
+	services, err := a.loadServiceRules(ctx, uid, time.Now())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vehicles": vehicles, "logs": logs, "documents": docs, "services": services, "storage": fileBucket() != nil})
 }
 
 // ---- Vehicles ----
@@ -1205,7 +1215,9 @@ func randomKey() string {
 	return hex.EncodeToString(b)
 }
 
-// openDocFile sends the browser to a short-lived link to the file.
+// openDocFile streams the file through the app, so the phone can keep a
+// copy for offline use (a presigned link to the bucket would need CORS).
+// Each file's key is new on every upload, so a copy never goes stale.
 func (a *api) openDocFile(w http.ResponseWriter, r *http.Request, uid int64) {
 	id, ok := pathID(r)
 	if !ok {
@@ -1223,13 +1235,20 @@ func (a *api) openDocFile(w http.ResponseWriter, r *http.Request, uid int64) {
 		writeError(w, http.StatusNotFound, "This document has no file")
 		return
 	}
-	url, err := b.link(r.Context(), key, name, contentType)
+	body, size, err := b.get(r.Context(), key)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, url, http.StatusFound)
+	defer body.Close()
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `inline; filename="`+asciiName(name)+`"`)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("ETag", `"`+key+`"`)
+	if size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	}
+	io.Copy(w, body)
 }
 
 func (a *api) deleteDocFile(w http.ResponseWriter, r *http.Request, uid int64) {

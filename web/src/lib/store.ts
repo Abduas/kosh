@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { DocType, LogKind, Transaction, TxKind, Vehicle, VehicleDoc, VehicleLog } from './api'
+import type { DocType, LogKind, ServiceRule, Transaction, TxKind, Vehicle, VehicleDoc, VehicleLog } from './api'
 import type { UpiTarget } from './upi'
 
 /** A minimal global store for UI state shared across screens. */
@@ -100,6 +100,7 @@ export type GarageSheet =
   | { kind: 'vehicle'; editing?: Vehicle }
   | { kind: 'log'; editing?: VehicleLog; preset?: { vehicleId?: number; kind?: LogKind } }
   | { kind: 'doc'; editing?: VehicleDoc; preset?: { vehicleId?: number | null; type?: DocType; renew?: VehicleDoc; scan?: boolean } }
+  | { kind: 'rule'; vehicleId: number; editing?: ServiceRule }
 
 export const garageSheet = createStore<{ sheet: GarageSheet | null; key: number }>({ sheet: null, key: 0 })
 
@@ -109,4 +110,16 @@ export function openGarageSheet(sheet: GarageSheet) {
 
 export function closeGarageSheet() {
   garageSheet.set((s) => ({ ...s, sheet: null }))
+}
+
+// ---- Showing a paper full screen (works offline) ----
+
+export const paperViewer = createStore<{ doc: VehicleDoc | null }>({ doc: null })
+
+export function showPaper(doc: VehicleDoc) {
+  paperViewer.set({ doc })
+}
+
+export function closePaper() {
+  paperViewer.set({ doc: null })
 }

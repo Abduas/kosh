@@ -22,6 +22,7 @@ import {
   type User,
 } from './api'
 import { ymd } from './format'
+import { forgetPapers } from './offline'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,7 @@ export const dehydrateOptions = {
  * screens are gone: they read this data and would crash without it.
  */
 export function clearSignedInData() {
+  forgetPapers()
   queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' })
   try {
     localStorage.removeItem(CACHE_KEY)
@@ -56,6 +58,7 @@ export function clearSignedInData() {
 }
 
 export function clearLocalData() {
+  forgetPapers()
   queryClient.clear()
   try {
     localStorage.removeItem(CACHE_KEY)
@@ -286,7 +289,7 @@ export function invalidateGarage() {
   invalidateMoney()
 }
 
-type GarageEntity = 'vehicles' | 'vehicle-logs' | 'vehicle-documents'
+type GarageEntity = 'vehicles' | 'vehicle-logs' | 'vehicle-documents' | 'service-rules'
 
 export function useSaveGarage<T>(entity: GarageEntity) {
   return useMutation({

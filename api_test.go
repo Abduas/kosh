@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,12 @@ type client struct {
 }
 
 func newTestServer(t *testing.T) *httptest.Server {
+	srv, _ := newTestServerDB(t)
+	return srv
+}
+
+// newTestServerDB also returns the database, for checking jobs directly.
+func newTestServerDB(t *testing.T) (*httptest.Server, *sql.DB) {
 	t.Helper()
 	db, err := openDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -30,7 +37,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Cleanup(func() { db.Close() })
 	srv := httptest.NewServer(newServer(db))
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, db
 }
 
 func newClient(t *testing.T, srv *httptest.Server) *client {

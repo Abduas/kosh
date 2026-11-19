@@ -1,5 +1,5 @@
 import { addMonths, differenceInCalendarDays, format, isThisYear, parseISO } from 'date-fns'
-import type { DocType, FuelKind, Garage, LogKind, Module, Prefs, Vehicle, VehicleDoc, VehicleKind, VehicleLog } from './api'
+import type { DocType, FuelKind, Garage, LogKind, Module, Prefs, ServiceRule, Vehicle, VehicleDoc, VehicleKind, VehicleLog } from './api'
 import { ymd } from './format'
 
 // ---- Modules: which parts of Kosh someone uses ----
@@ -224,4 +224,44 @@ export function rememberVehicle(id: number) {
   try {
     localStorage.setItem('kosh:lastVehicle', String(id))
   } catch {}
+}
+
+// ---- Service schedules ----
+
+/** Usual intervals to start from; the owner's manual knows best. */
+export function suggestedRules(kind: VehicleKind, fuel: FuelKind): { title: string; everyKm: number | null; everyMonths: number | null }[] {
+  if (fuel === 'ev') return [{ title: 'General service', everyKm: 10000, everyMonths: 12 }]
+  if (kind === 'car' || kind === 'other')
+    return [
+      { title: 'General service', everyKm: 10000, everyMonths: 12 },
+      { title: 'Oil change', everyKm: 10000, everyMonths: 12 },
+      { title: 'Tyre rotation', everyKm: 10000, everyMonths: null },
+    ]
+  return [
+    { title: 'General service', everyKm: 3000, everyMonths: 4 },
+    { title: 'Oil change', everyKm: 3000, everyMonths: 6 },
+    ...(kind === 'bike' ? [{ title: 'Chain & sprocket', everyKm: 1000, everyMonths: null }] : []),
+  ]
+}
+
+export function ruleEvery(r: Pick<ServiceRule, 'everyKm' | 'everyMonths'>): string {
+  const parts = [r.everyKm ? km(r.everyKm) : '', r.everyMonths ? (r.everyMonths === 12 ? 'a year' : `${r.everyMonths} months`) : ''].filter(Boolean)
+  return 'Every ' + parts.join(' or ')
+}
+
+/** "In 200 km", "Overdue by 120 km", "By 3 Dec", "Log the last one". */
+export function ruleDue(r: ServiceRule, today = ymd(new Date())): string {
+  if (r.state === 'unknown') return 'Log the last one'
+  if (r.kmLeft != null && r.kmLeft < 0) return `Overdue by ${km(-r.kmLeft)}`
+  if (r.nextOn && r.nextOn < today) return `Overdue since ${shortDay(r.nextOn)}`
+  const date = [r.nextOn, r.guessOn].filter(Boolean).sort()[0]
+  if (r.kmLeft != null && (r.state === 'soon' || !date)) return `In ${km(r.kmLeft)}`
+  return date ? `By ${shortDay(date)}` : `At ${km(r.nextKm ?? 0)}`
+}
+
+export const ruleTone: Record<ServiceRule['state'], string> = {
+  overdue: 'text-neg',
+  soon: 'text-warn',
+  ok: 'text-ink-3',
+  unknown: 'text-accent',
 }

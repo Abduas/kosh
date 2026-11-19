@@ -15,6 +15,7 @@ import { privacy, togglePrivacy } from '../lib/store'
 import { payableAccounts } from '../lib/pay'
 import { launchScanEnabled, platform, preferredApp, rememberApp, setLaunchScan, upiApps } from '../lib/upi'
 import { GoogleMark } from './Auth'
+import { RemindersSettings } from '../components/Reminders'
 import { ago, useCaptureSetup } from './Capture'
 
 const currencies = [
@@ -56,9 +57,11 @@ export function Settings() {
     if (q.get('google') === 'linked') toast.success('Google connected. You can sign in with it now.')
     const err = q.get('authError')
     if (err) toast.error(err)
+    if (q.get('reminders')) setTimeout(() => document.getElementById('reminders')?.scrollIntoView({ behavior: 'smooth' }), 300)
     clearParam('google')
     clearParam('authError')
     clearParam('merge')
+    clearParam('reminders')
   }, [])
 
   const unlinkGoogle = useMutation({
@@ -154,6 +157,13 @@ export function Settings() {
           <Toggle checked={vehicles} onChange={(v) => setModule('vehicles', v)} label="Vehicles" />
         </div>
       </div>
+
+      {vehicles && (
+        <div id="reminders" className="scroll-mt-4">
+          <SectionTitle title="Vehicle reminders" />
+          <RemindersSettings />
+        </div>
+      )}
 
       <SectionTitle title="Appearance" />
       <div className="space-y-4 rounded-[22px] bg-surface p-4 shadow-card">

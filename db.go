@@ -278,6 +278,45 @@ var migrations = []string{
 	);
 	CREATE INDEX vehicle_documents_user ON vehicle_documents(user_id, expires_on);
 	CREATE INDEX vehicle_documents_vehicle ON vehicle_documents(vehicle_id);`,
+
+	// Service schedules ("oil change every 3,000 km or 6 months") and
+	// reminders: phones subscribed to Web Push, a private calendar feed, and
+	// what's been sent so the daily job never says the same thing twice.
+	`CREATE TABLE service_rules (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+		title TEXT NOT NULL,
+		every_km INTEGER CHECK (every_km IS NULL OR every_km > 0),
+		every_months INTEGER CHECK (every_months IS NULL OR every_months > 0),
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+		CHECK (every_km IS NOT NULL OR every_months IS NOT NULL)
+	);
+	CREATE INDEX service_rules_vehicle ON service_rules(vehicle_id);
+	CREATE INDEX service_rules_user ON service_rules(user_id);
+
+	CREATE TABLE push_subscriptions (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		endpoint TEXT NOT NULL UNIQUE,
+		p256dh TEXT NOT NULL,
+		auth TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+	CREATE INDEX push_subscriptions_user ON push_subscriptions(user_id);
+
+	CREATE TABLE calendar_keys (
+		user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		token TEXT NOT NULL UNIQUE,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+
+	CREATE TABLE reminders_sent (
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		key TEXT NOT NULL,
+		sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+		PRIMARY KEY (user_id, key)
+	);`,
 }
 
 func migrate(db *sql.DB) error {

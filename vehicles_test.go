@@ -1,8 +1,18 @@
 package main
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+
+	webpush "github.com/SherClockHolmes/webpush-go"
 )
 
 type garage struct {
@@ -209,5 +219,177 @@ func TestVehicles(t *testing.T) {
 	me.do("GET", "/api/vehicles", nil, 200, &g)
 	if len(g.Vehicles) != 0 || len(g.Logs) != 0 || len(g.Documents) != 1 {
 		t.Fatalf("after delete: %+v", g)
+	}
+}
+
+func TestServiceRulesAndReminders(t *testing.T) {
+	srv, db := newTestServerDB(t)
+	me := newClient(t, srv)
+	me.do("POST", "/api/auth/signup", map[string]string{"name": "Abdullah", "username": "abdullah", "password": "password123"}, 201, nil)
+	today := reminderToday()
+	day := func(n int) string { return today.AddDate(0, 0, n).Format(dateLayout) }
+
+	var bike vehicle
+	me.do("POST", "/api/vehicles", map[string]any{"kind": "bike", "name": "Pulsar", "color": "#3B82F6"}, 201, &bike)
+	// Readings 60 days apart, 1,200 km: 20 km a day.
+	me.do("POST", "/api/vehicle-logs", map[string]any{"vehicleId": bike.ID, "kind": "odometer", "occurredOn": day(-60), "odometer": 10000}, 201, nil)
+	me.do("POST", "/api/vehicle-logs", map[string]any{"vehicleId": bike.ID, "kind": "service", "occurredOn": day(-60), "odometer": 10000, "title": "General service, Oil change"}, 201, nil)
+	me.do("POST", "/api/vehicle-logs", map[string]any{"vehicleId": bike.ID, "kind": "odometer", "occurredOn": day(0), "odometer": 12800}, 201, nil)
+
+	var oil, chain serviceRule
+	me.do("POST", "/api/service-rules", map[string]any{"vehicleId": bike.ID, "title": "Oil change"}, 400, nil)
+	me.do("POST", "/api/service-rules", map[string]any{"vehicleId": bike.ID, "title": "Oil change", "everyKm": 3000, "everyMonths": 6}, 201, &oil)
+	if oil.State != "soon" || oil.KmLeft == nil || *oil.KmLeft != 200 || oil.LastOn == nil || *oil.LastOn != day(-60) {
+		t.Fatalf("oil = %+v", oil)
+	}
+	me.do("POST", "/api/service-rules", map[string]any{"vehicleId": bike.ID, "title": "Chain", "everyKm": 500}, 201, &chain)
+	if chain.State != "unknown" {
+		t.Fatalf("chain = %+v", chain)
+	}
+	var general serviceRule
+	me.do("POST", "/api/service-rules", map[string]any{"vehicleId": bike.ID, "title": "General service", "everyMonths": 1}, 201, &general)
+	if general.State != "overdue" {
+		t.Fatalf("general = %+v", general)
+	}
+
+	// Papers: PUC in 5 days, insurance expired 3 days ago, tax for life.
+	me.do("POST", "/api/vehicle-documents", map[string]any{"vehicleId": bike.ID, "type": "puc", "expiresOn": day(5)}, 201, nil)
+	me.do("POST", "/api/vehicle-documents", map[string]any{"vehicleId": bike.ID, "type": "insurance", "expiresOn": day(-3)}, 201, nil)
+	me.do("POST", "/api/vehicle-documents", map[string]any{"vehicleId": bike.ID, "type": "road_tax"}, 201, nil)
+
+	var uid int64 = 1
+	a := &api{db: db}
+	items, err := a.dueReminders(t.Context(), uid, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, it := range items {
+		titles = append(titles, it.key+" | "+it.title)
+	}
+	got := strings.Join(titles, "\n")
+	for _, want := range []string{"Pulsar Insurance expired 3 days ago", "Pulsar PUC expires in 5 days", "Pulsar: General service overdue", "Pulsar: Oil change due in 200 km"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("reminders missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Road tax") || strings.Contains(got, "Chain") || strings.Contains(got, "odometer") {
+		t.Errorf("unexpected reminders:\n%s", got)
+	}
+	if !strings.HasPrefix(titles[0], "doc:") || !strings.Contains(titles[0], "expired") {
+		t.Errorf("most urgent should come first:\n%s", got)
+	}
+
+	// Logging the oil change moves the next one on.
+	me.do("POST", "/api/vehicle-logs", map[string]any{"vehicleId": bike.ID, "kind": "service", "occurredOn": day(0), "odometer": 12800, "title": "Oil change"}, 201, nil)
+	me.do("PATCH", fmt.Sprintf("/api/service-rules/%d", oil.ID), map[string]any{}, 200, &oil)
+	if oil.State != "ok" || *oil.NextKm != 15800 || oil.GuessOn == nil {
+		t.Fatalf("after service: %+v", oil)
+	}
+
+	// Calendar feed: a link, then events with alarms; a reset link stops working.
+	var cal struct {
+		Path string `json:"path"`
+	}
+	me.do("POST", "/api/calendar", nil, 200, &cal)
+	res, err := http.Get(srv.URL + cal.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	ics := string(body)
+	for _, want := range []string{"BEGIN:VCALENDAR", "SUMMARY:Pulsar PUC expires", "DTSTART;VALUE=DATE:" + strings.ReplaceAll(day(5), "-", ""), "SUMMARY:Pulsar: Oil change due", "TRIGGER:-PT15H"} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("calendar missing %q:\n%s", want, ics)
+		}
+	}
+	me.do("DELETE", "/api/calendar", nil, 204, nil)
+	if res, _ := http.Get(srv.URL + cal.Path); res.StatusCode != 404 {
+		t.Fatalf("old calendar link still works: %d", res.StatusCode)
+	}
+
+	// Push isn't configured in tests.
+	var push map[string]any
+	me.do("GET", "/api/push", nil, 200, &push)
+	if push["available"] != false {
+		t.Fatalf("push = %v", push)
+	}
+	me.do("POST", "/api/push/subscribe", map[string]any{"endpoint": "http://not-https", "keys": map[string]string{"p256dh": "x", "auth": "y"}}, 400, nil)
+	if out, err := vehicleReminders(t.Context(), a.db); err != nil || !strings.Contains(out, "aren't set up") {
+		t.Fatalf("job without keys: %q %v", out, err)
+	}
+}
+
+func TestReminderJob(t *testing.T) {
+	srv, db := newTestServerDB(t)
+	me := newClient(t, srv)
+	me.do("POST", "/api/auth/signup", map[string]string{"name": "Abdullah", "username": "abdullah", "password": "password123"}, 201, nil)
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"modules": []string{"finance", "vehicles"}}}, 200, nil)
+
+	priv, pub, err := webpush.GenerateVAPIDKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VAPID_PUBLIC_KEY", pub)
+	t.Setenv("VAPID_PRIVATE_KEY", priv)
+
+	// A fake push service that counts deliveries.
+	var got []string
+	var mu sync.Mutex
+	pushSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, r.URL.Path)
+		mu.Unlock()
+		if r.URL.Path == "/gone" {
+			w.WriteHeader(http.StatusGone)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(pushSrv.Close)
+	old := pushClient
+	pushClient = pushSrv.Client()
+	t.Cleanup(func() { pushClient = old })
+
+	// A phone's keys, as a browser makes them.
+	key, _ := ecdh.P256().GenerateKey(rand.Reader)
+	auth := make([]byte, 16)
+	rand.Read(auth)
+	sub := func(path string) map[string]any {
+		return map[string]any{"endpoint": pushSrv.URL + path, "keys": map[string]string{
+			"p256dh": base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), "auth": base64.RawURLEncoding.EncodeToString(auth)}}
+	}
+	var status map[string]any
+	me.do("POST", "/api/push/subscribe", sub("/phone"), 200, &status)
+	me.do("POST", "/api/push/subscribe", sub("/gone"), 200, &status)
+	if status["devices"] != float64(2) || status["publicKey"] != pub {
+		t.Fatalf("push status = %v", status)
+	}
+	me.do("POST", "/api/push/test", nil, 200, nil)
+	me.do("GET", "/api/push", nil, 200, &status)
+	if status["devices"] != float64(1) {
+		t.Fatalf("a gone phone wasn't forgotten: %v", status)
+	}
+
+	var v vehicle
+	me.do("POST", "/api/vehicles", map[string]any{"kind": "car", "name": "Swift", "color": "#3B82F6"}, 201, &v)
+	me.do("POST", "/api/vehicle-documents", map[string]any{"vehicleId": v.ID, "type": "puc", "expiresOn": reminderToday().AddDate(0, 0, 6).Format(dateLayout)}, 201, nil)
+
+	got = nil
+	out, err := vehicleReminders(t.Context(), db)
+	if err != nil || !strings.Contains(out, "sent 1 reminders to 1 people") || len(got) != 1 {
+		t.Fatalf("first run: %q %v %v", out, err, got)
+	}
+	// A retry or catch-up run says nothing new.
+	out, err = vehicleReminders(t.Context(), db)
+	if err != nil || !strings.Contains(out, "sent 0 reminders") || len(got) != 1 {
+		t.Fatalf("second run: %q %v %v", out, err, got)
+	}
+	// Someone who turned vehicles off hears nothing.
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"modules": []string{"finance"}}}, 200, nil)
+	me.do("POST", "/api/vehicle-documents", map[string]any{"vehicleId": v.ID, "type": "insurance", "expiresOn": reminderToday().Format(dateLayout)}, 201, nil)
+	if out, _ := vehicleReminders(t.Context(), db); !strings.Contains(out, "sent 0") {
+		t.Fatalf("vehicles off: %q", out)
 	}
 }

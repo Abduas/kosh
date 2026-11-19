@@ -5,15 +5,17 @@ import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react'
 import { Toaster } from 'sonner'
 import { Composer } from './components/Composer'
 import { GarageSheets } from './components/VehicleForms'
+import { PaperViewerHost } from './components/PaperViewer'
+import { syncPapers } from './lib/offline'
 import { PaymentCheck } from './components/PaymentCheck'
 import { cn } from './components/ui'
 import { api, type AuthStatus } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
-import { clearLocalData, clearSignedInData, useBootstrap, useData } from './lib/queries'
+import { clearLocalData, clearSignedInData, useBootstrap, useData, useGarage } from './lib/queries'
 import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
 import { closeScanner, composer, openComposer, openGarageSheet, openScanner, scanner } from './lib/store'
-import { hasFinance, hasVehicles, lastSpace, rememberSpace, spaceOfPath, type Space } from './lib/vehicles'
+import { currentDocs, hasFinance, hasVehicles, lastSpace, rememberSpace, spaceOfPath, type Space } from './lib/vehicles'
 import { launchScanEnabled, readPending } from './lib/upi'
 import { AccountDetail, Accounts } from './screens/Accounts'
 import { AuthScreen } from './screens/Auth'
@@ -179,6 +181,12 @@ function Shell() {
     else if (first && path === '/' && vehicles && lastSpace() === 'vehicles' && !search.toString()) navigate('/garage', { replace: true })
   }, [path, pathSpace, finance, vehicles]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep a copy of each current paper on the phone, for showing offline.
+  const garage = useGarage(vehicles).data
+  useEffect(() => {
+    if (garage && navigator.onLine) syncPapers(currentDocs(garage.documents)).catch(() => {})
+  }, [garage])
+
   const add = () => (space === 'vehicles' ? openGarageSheet({ kind: 'menu' }) : openComposer())
   const tabs = space === 'vehicles' ? vehicleTabs : financeTabs
 
@@ -317,6 +325,7 @@ function Shell() {
       <TabBar path={path} tabs={tabs} onAdd={add} addLabel={space === 'vehicles' ? 'Add to garage' : 'Add transaction'} />
       <Composer />
       <GarageSheets />
+      <PaperViewerHost />
       <ScannerHost />
       <PaymentCheck />
     </div>
