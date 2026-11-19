@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { Transaction, TxKind } from './api'
+import type { DocType, LogKind, Transaction, TxKind, Vehicle, VehicleDoc, VehicleLog } from './api'
 import type { UpiTarget } from './upi'
 
 /** A minimal global store for UI state shared across screens. */
@@ -91,4 +91,22 @@ export function openScanner() {
 
 export function closeScanner() {
   scanner.set({ open: false })
+}
+
+// ---- Vehicle sheets: add menu, vehicle, log and document forms ----
+
+export type GarageSheet =
+  | { kind: 'menu'; vehicleId?: number }
+  | { kind: 'vehicle'; editing?: Vehicle }
+  | { kind: 'log'; editing?: VehicleLog; preset?: { vehicleId?: number; kind?: LogKind } }
+  | { kind: 'doc'; editing?: VehicleDoc; preset?: { vehicleId?: number | null; type?: DocType; renew?: VehicleDoc; scan?: boolean } }
+
+export const garageSheet = createStore<{ sheet: GarageSheet | null; key: number }>({ sheet: null, key: 0 })
+
+export function openGarageSheet(sheet: GarageSheet) {
+  garageSheet.set((s) => ({ sheet, key: s.key + 1 }))
+}
+
+export function closeGarageSheet() {
+  garageSheet.set((s) => ({ ...s, sheet: null }))
 }

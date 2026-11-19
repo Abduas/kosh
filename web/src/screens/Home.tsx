@@ -9,6 +9,7 @@ import { useBudgets, useCaptures, useData, useInsights } from '../lib/queries'
 import { clearParam, navigate, useBackToClose, useLocation } from '../lib/router'
 import { openScanner, privacy, togglePrivacy } from '../lib/store'
 import { Log } from './Activity'
+import { DueSoonRow, SpaceSwitch } from './Garage'
 
 type Period = 'week' | 'month'
 
@@ -75,10 +76,13 @@ export function Home() {
     <div>
       {!searching && (
         <>
-          <header className="flex items-center justify-between pt-1">
+          <header className="relative flex items-center justify-between pt-1">
             <IconButton label="Search" onClick={openSearch}>
               <Search className="size-[21px]" />
             </IconButton>
+            <div className="absolute left-1/2 -translate-x-1/2">
+              <SpaceSwitch space="finance" />
+            </div>
             <div className="flex items-center">
               <IconButton label={hidden ? 'Show amounts' : 'Hide amounts'} onClick={() => { haptic(); togglePrivacy() }}>
                 {hidden ? <EyeOff className="size-[21px]" /> : <Eye className="size-[21px]" />}
@@ -128,6 +132,8 @@ export function Home() {
               <ScanLine className="size-[18px]" /> Scan & pay
             </button>
           </section>
+
+          <DueSoonRow />
 
           {toReview > 0 && (
             <button

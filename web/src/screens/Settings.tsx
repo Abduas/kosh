@@ -6,6 +6,8 @@ import { Sheet } from '../components/Sheet'
 import { Avatar, Button, Field, ListRow, ScreenHeader, SectionTitle, Segmented, TextInput, Toggle, cn } from '../components/ui'
 import { api, type AuthStatus, type Bootstrap, type MergeOffer, type Prefs, type User } from '../lib/api'
 import { ordinal } from '../lib/format'
+import { hasFinance, hasVehicles, lastSpace, rememberSpace } from '../lib/vehicles'
+import type { Module } from '../lib/api'
 import { accents } from '../lib/look'
 import { invalidateMoney, queryClient, useData, useUpdateMe } from '../lib/queries'
 import { clearParam, navigate } from '../lib/router'
@@ -77,6 +79,14 @@ export function Settings() {
   }, [])
 
   const setPref = (p: Prefs) => update.mutate({ prefs: p })
+  const finance = hasFinance(prefs)
+  const vehicles = hasVehicles(prefs)
+  const setModule = (m: Module, on: boolean) => {
+    const next = (['finance', 'vehicles'] as Module[]).filter((x) => (x === m ? on : x === 'finance' ? finance : vehicles))
+    if (!next.length) return toast('Keep at least one part of Kosh on')
+    if (!on) rememberSpace(next[0])
+    update.mutate({ prefs: { modules: next } }, { onSuccess: () => toast.success(on ? `${m === 'vehicles' ? 'Vehicles' : 'Money'} is on. Switch from the title on the first screen.` : 'Hidden. Nothing was deleted.') })
+  }
 
   // Opening the CSV URL directly would replace the installed app with the file
   // and no way back. Fetch it instead, then share it (phones) or download it.
@@ -111,7 +121,7 @@ export function Settings() {
 
   return (
     <div>
-      <ScreenHeader title="Settings" back="/" />
+      <ScreenHeader title="Settings" back={lastSpace() === 'vehicles' && vehicles ? '/garage' : '/'} />
 
       <div className="flex items-center gap-4 rounded-[24px] bg-surface p-4 shadow-card">
         <Avatar name={d.user.name} color={accents[prefs.accent ?? 'violet'] ?? '#7C5CFF'} size={56} />
@@ -124,6 +134,24 @@ export function Settings() {
             aria-label="Your name"
           />
           <p className="text-[13px] text-ink-3">@{d.user.username}</p>
+        </div>
+      </div>
+
+      <SectionTitle title="Sections" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium">💰 Money</p>
+            <p className="text-[12px] text-ink-3">Accounts, spending, budgets and people</p>
+          </div>
+          <Toggle checked={finance} onChange={(v) => setModule('finance', v)} label="Money" />
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium">🚗 Vehicles</p>
+            <p className="text-[12px] text-ink-3">Papers and renewals, fuel, mileage and service</p>
+          </div>
+          <Toggle checked={vehicles} onChange={(v) => setModule('vehicles', v)} label="Vehicles" />
         </div>
       </div>
 
@@ -160,6 +188,7 @@ export function Settings() {
         </div>
       </div>
 
+      {finance && (<>
       <SectionTitle title="Money" />
       <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -286,24 +315,38 @@ export function Settings() {
         />
       </div>
 
-      <SectionTitle title="Manage" />
-      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
-        <ListRow onClick={() => navigate('/accounts')} left={<RowIcon className="bg-accent/12 text-accent"><Wallet className="size-[18px]" /></RowIcon>} title="Accounts" chevron />
-        <div className="border-t border-line" />
-        <ListRow onClick={() => navigate('/categories')} left={<RowIcon className="bg-warn/12 text-warn"><Tag className="size-[18px]" /></RowIcon>} title="Categories" chevron />
-        <div className="border-t border-line" />
-        <ListRow onClick={() => navigate('/budgets')} left={<RowIcon className="bg-pos/12 text-pos"><Target className="size-[18px]" /></RowIcon>} title="Budgets" chevron />
-        {d.user.isOwner && (
-          <>
-            <div className="border-t border-line" />
-            <ListRow onClick={() => navigate('/members')} left={<RowIcon className="bg-accent/12 text-accent"><UserPlus className="size-[18px]" /></RowIcon>} title="Members" subtitle="Everyone who has signed up" chevron />
-          </>
-        )}
-        <div className="border-t border-line" />
-        <ListRow onClick={() => navigate('/settings/import')} left={<RowIcon className="bg-accent/12 text-accent"><FileUp className="size-[18px]" /></RowIcon>} title="Import" subtitle="From Dime, another app, or a bank statement" chevron />
-        <div className="border-t border-line" />
-        <ListRow onClick={exportCsv} left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
-      </div>
+      </>)}
+
+      {(finance || d.user.isOwner) && (
+        <>
+          <SectionTitle title="Manage" />
+          <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+            {finance && (
+              <>
+                <ListRow onClick={() => navigate('/accounts')} left={<RowIcon className="bg-accent/12 text-accent"><Wallet className="size-[18px]" /></RowIcon>} title="Accounts" chevron />
+                <div className="border-t border-line" />
+                <ListRow onClick={() => navigate('/categories')} left={<RowIcon className="bg-warn/12 text-warn"><Tag className="size-[18px]" /></RowIcon>} title="Categories" chevron />
+                <div className="border-t border-line" />
+                <ListRow onClick={() => navigate('/budgets')} left={<RowIcon className="bg-pos/12 text-pos"><Target className="size-[18px]" /></RowIcon>} title="Budgets" chevron />
+              </>
+            )}
+            {d.user.isOwner && (
+              <>
+                {finance && <div className="border-t border-line" />}
+                <ListRow onClick={() => navigate('/members')} left={<RowIcon className="bg-accent/12 text-accent"><UserPlus className="size-[18px]" /></RowIcon>} title="Members" subtitle="Everyone who has signed up" chevron />
+              </>
+            )}
+            {finance && (
+              <>
+                <div className="border-t border-line" />
+                <ListRow onClick={() => navigate('/settings/import')} left={<RowIcon className="bg-accent/12 text-accent"><FileUp className="size-[18px]" /></RowIcon>} title="Import" subtitle="From Dime, another app, or a bank statement" chevron />
+                <div className="border-t border-line" />
+                <ListRow onClick={exportCsv} left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {!standalone && (
         <>

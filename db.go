@@ -211,6 +211,73 @@ var migrations = []string{
 	CREATE INDEX captures_review ON captures(user_id, occurred_at DESC) WHERE status = 'review';
 	CREATE INDEX captures_merchant ON captures(user_id, merchant) WHERE status = 'saved';
 	CREATE INDEX captures_transaction ON captures(transaction_id) WHERE transaction_id IS NOT NULL;`,
+
+	// Vehicles: the garage, what was done to each (fuel, service, other costs,
+	// odometer readings) and their papers with expiry dates.
+	//
+	// A log paid from an account points at its transaction; that link is how
+	// an expense in Money belongs to a vehicle. amount and occurred_on are kept
+	// in step with the transaction, and stay when Money is erased.
+	// litres is in millilitres; odometer in km.
+	// A document with no vehicle is yours, like a driving licence. No
+	// expires_on means it doesn't expire (lifetime road tax, an RC).
+	`CREATE TABLE vehicles (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('car', 'bike', 'scooter', 'other')),
+		name TEXT NOT NULL,
+		make TEXT NOT NULL DEFAULT '',
+		model TEXT NOT NULL DEFAULT '',
+		year INTEGER,
+		reg_number TEXT NOT NULL DEFAULT '',
+		fuel TEXT NOT NULL DEFAULT 'petrol' CHECK (fuel IN ('petrol', 'diesel', 'cng', 'ev', 'hybrid')),
+		color TEXT NOT NULL,
+		archived INTEGER NOT NULL DEFAULT 0,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+	CREATE INDEX vehicles_user ON vehicles(user_id);
+
+	CREATE TABLE vehicle_logs (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('fuel', 'service', 'expense', 'odometer')),
+		occurred_on TEXT NOT NULL,
+		odometer INTEGER CHECK (odometer IS NULL OR odometer >= 0),
+		litres INTEGER CHECK (litres IS NULL OR litres > 0),
+		full_tank INTEGER NOT NULL DEFAULT 0,
+		title TEXT NOT NULL DEFAULT '',
+		amount INTEGER NOT NULL DEFAULT 0 CHECK (amount >= 0),
+		note TEXT NOT NULL DEFAULT '',
+		transaction_id INTEGER UNIQUE REFERENCES transactions(id) ON DELETE SET NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+	CREATE INDEX vehicle_logs_user ON vehicle_logs(user_id, occurred_on DESC);
+	CREATE INDEX vehicle_logs_vehicle ON vehicle_logs(vehicle_id, occurred_on DESC);
+
+	CREATE TABLE vehicle_documents (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
+		type TEXT NOT NULL CHECK (type IN ('rc', 'insurance', 'puc', 'road_tax', 'fitness', 'permit', 'licence', 'warranty', 'other')),
+		title TEXT NOT NULL DEFAULT '',
+		number TEXT NOT NULL DEFAULT '',
+		issuer TEXT NOT NULL DEFAULT '',
+		issued_on TEXT,
+		expires_on TEXT,
+		amount INTEGER NOT NULL DEFAULT 0 CHECK (amount >= 0),
+		note TEXT NOT NULL DEFAULT '',
+		file_key TEXT NOT NULL DEFAULT '',
+		file_name TEXT NOT NULL DEFAULT '',
+		file_type TEXT NOT NULL DEFAULT '',
+		file_size INTEGER NOT NULL DEFAULT 0,
+		transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+		updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+	CREATE INDEX vehicle_documents_user ON vehicle_documents(user_id, expires_on);
+	CREATE INDEX vehicle_documents_vehicle ON vehicle_documents(vehicle_id);`,
 }
 
 func migrate(db *sql.DB) error {

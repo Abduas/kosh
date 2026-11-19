@@ -17,7 +17,12 @@ export type Prefs = {
   upiAccountId?: number
   /** Auto-capture saves a bank message straight away when it knows the payee. Default on. */
   captureAuto?: boolean
+  /** The parts of Kosh in use. Missing means money only. */
+  modules?: Module[]
 }
+
+export type Module = 'finance' | 'vehicles'
+
 
 export type User = {
   id: number
@@ -90,6 +95,8 @@ export type Transaction = {
   payee: string // UPI ID for payments made from Kosh's scanner
   createdAt: string
   updatedAt: string
+  /** The vehicle an expense was for. */
+  vehicle: VehicleLink | null
 }
 
 export type TxInput = Pick<Transaction, 'kind' | 'amount' | 'accountId' | 'toAccountId' | 'categoryId' | 'personId' | 'note' | 'occurredAt'> & {
@@ -97,7 +104,84 @@ export type TxInput = Pick<Transaction, 'kind' | 'amount' | 'accountId' | 'toAcc
   payee?: string
   /** The reviewed bank message this saves (auto-capture). */
   captureId?: number
+  /** Left out, an edit keeps the vehicle; null means not for a vehicle. */
+  vehicle?: VehicleLink | null
 }
+
+// ---- Vehicles ----
+
+export type VehicleKind = 'car' | 'bike' | 'scooter' | 'other'
+export type FuelKind = 'petrol' | 'diesel' | 'cng' | 'ev' | 'hybrid'
+export type LogKind = 'fuel' | 'service' | 'expense' | 'odometer'
+export type DocType = 'rc' | 'insurance' | 'puc' | 'road_tax' | 'fitness' | 'permit' | 'licence' | 'warranty' | 'other'
+
+export type Vehicle = {
+  id: number
+  kind: VehicleKind
+  name: string
+  make: string
+  model: string
+  year: number | null
+  regNumber: string // "KA01AB1234"
+  fuel: FuelKind
+  color: string
+  archived: boolean
+  sortOrder: number
+  /** The highest odometer reading, km. */
+  odometer: number | null
+  odometerOn: string | null
+  createdAt: string
+}
+
+export type VehicleLog = {
+  id: number
+  vehicleId: number
+  kind: LogKind
+  occurredOn: string // YYYY-MM-DD
+  odometer: number | null
+  litres: number | null // millilitres
+  fullTank: boolean
+  title: string
+  amount: number
+  note: string
+  /** The expense in Money it was paid with. */
+  transactionId: number | null
+  accountId: number | null
+}
+
+export type VehicleDoc = {
+  id: number
+  /** null: yours, like a driving licence. */
+  vehicleId: number | null
+  type: DocType
+  title: string
+  number: string
+  issuer: string
+  issuedOn: string | null
+  /** null: doesn't expire. */
+  expiresOn: string | null
+  amount: number
+  note: string
+  fileName: string
+  fileType: string
+  fileSize: number
+  transactionId: number | null
+  accountId: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** What an expense in Money says about its vehicle. */
+export type VehicleLink = {
+  vehicleId: number
+  kind: 'fuel' | 'service' | 'expense'
+  odometer: number | null
+  litres: number | null
+  fullTank: boolean
+  title: string
+}
+
+export type Garage = { vehicles: Vehicle[]; logs: VehicleLog[]; documents: VehicleDoc[]; storage: boolean }
 
 /** How Kosh would file a captured message, from the last payment to the same payee. */
 export type CaptureSuggestion = {

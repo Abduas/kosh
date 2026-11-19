@@ -1,13 +1,14 @@
 import { parseISO } from 'date-fns'
 import { AnimatePresence, motion } from 'motion/react'
 import { Drawer } from 'vaul'
-import { AlignLeft, ArrowRight, CalendarDays, Check, Delete, LayoutGrid, LoaderCircle, Lock, Pencil, Plus, ScanLine, Store, Trash2, TriangleAlert, UserRound, Users, X } from 'lucide-react'
+import { AlignLeft, ArrowRight, CalendarDays, Car, Check, Delete, LayoutGrid, LoaderCircle, Lock, Pencil, Plus, ScanLine, Store, Trash2, TriangleAlert, UserRound, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import type { Account, Category, Person, Transaction, TxInput, TxKind } from '../lib/api'
+import type { Account, Category, Person, Transaction, TxInput, TxKind, Vehicle, VehicleLink } from '../lib/api'
 import { currencySymbol, dayLabel, getCurrency, localNow, money, monthPeriod, pad, ymd } from '../lib/format'
 import { haptic, palette } from '../lib/look'
-import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
+import { useBudgets, useData, useDeleteTx, useGarage, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
+import { hasVehicles, km, lastVehicleId, rememberVehicle, vehicleKinds } from '../lib/vehicles'
 import { payableAccounts } from '../lib/pay'
 import { isTouch } from '../lib/device'
 import { suggestEmoji } from '../lib/emoji'
@@ -19,7 +20,7 @@ import { Avatar, Chip, Glyph, Segmented, Toggle, cn } from './ui'
 
 type Mode = 'expense' | 'income' | 'transfer' | 'people'
 type PersonKind = 'lend' | 'borrow' | 'collect' | 'repay'
-type Panel = 'keypad' | 'account' | 'toAccount' | 'date' | 'category' | 'person' | 'app' | 'split'
+type Panel = 'keypad' | 'account' | 'toAccount' | 'date' | 'category' | 'person' | 'app' | 'split' | 'vehicle'
 
 const personKindHelp: Record<PersonKind, string> = {
   lend: 'You gave them money',
@@ -173,6 +174,18 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const [splitWith, setSplitWith] = useState<number[]>([])
   const [includeMe, setIncludeMe] = useState(true)
 
+  // The vehicle an expense was for: fuel, a service, parking…
+  const vehiclesOn = hasVehicles(d.user.prefs)
+  const garage = useGarage(vehiclesOn || !!editing?.vehicle).data
+  const linked = editing?.vehicle ?? null
+  const myVehicles = (garage?.vehicles ?? []).filter((v) => !v.archived || v.id === linked?.vehicleId)
+  const [vehicleId, setVehicleId] = useState<number | null>(linked?.vehicleId ?? null)
+  const [vOdo, setVOdo] = useState(linked?.odometer != null ? String(linked.odometer) : '')
+  const [vQty, setVQty] = useState(linked?.litres ? String(linked.litres / 1000) : '')
+  const [vFull, setVFull] = useState(linked?.fullTank ?? true)
+  // Picked by Kosh (for fuel), not by you: picking another category undoes it.
+  const autoVehicle = useRef(false)
+
   const kind: TxKind = mode === 'people' ? personKind : mode
   const result = evaluate(expr)
   const hasOp = /[+−×÷]/.test(expr.replace(/[+−×÷]$/, ''))
@@ -205,6 +218,24 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
     () => d.people.filter((p) => !p.archived || p.id === personId).sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || '') || a.name.localeCompare(b.name)),
     [d.people, personId],
   )
+
+  const isFuel = (() => {
+    const c = categoryId ? d.categoriesById.get(categoryId) : undefined
+    return !!c && (c.name.toLowerCase() === 'fuel' || c.icon === '⛽')
+  })()
+  useEffect(() => {
+    if (!vehiclesOn || editing || !myVehicles.length) return
+    if (isFuel && vehicleId == null) {
+      const pick = myVehicles.find((v) => v.id === lastVehicleId() && !v.archived) ?? myVehicles.find((v) => !v.archived)
+      if (pick) {
+        setVehicleId(pick.id)
+        autoVehicle.current = true
+      }
+    } else if (!isFuel && autoVehicle.current) {
+      setVehicleId(null)
+      autoVehicle.current = false
+    }
+  }, [isFuel, myVehicles.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A category from the other kind doesn't carry over when switching modes.
   useEffect(() => {
@@ -250,10 +281,23 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
       setPanel('person')
       return fail('person', 'Pick a person'), null
     }
+    let vehicle: VehicleLink | null | undefined
+    if (mode === 'expense' && vehicleId) {
+      const ml = vQty ? Math.round(Number(vQty) * 1000) : 0
+      vehicle = {
+        vehicleId,
+        kind: isFuel ? 'fuel' : linked?.kind === 'service' ? 'service' : 'expense',
+        odometer: vOdo ? Number(vOdo) : null,
+        litres: isFuel && ml > 0 ? ml : null,
+        fullTank: isFuel && vFull,
+        title: linked?.title ?? '',
+      }
+    } else if (linked) vehicle = null
     return {
       kind,
       amount,
       accountId,
+      ...(vehicle !== undefined ? { vehicle } : {}),
       toAccountId: mode === 'transfer' ? toAccountId : null,
       categoryId: mode === 'expense' || mode === 'income' ? categoryId : null,
       personId: mode === 'people' ? personId : null,
@@ -290,6 +334,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   }
 
   const rememberAccount = () => {
+    if (vehicleId && mode === 'expense') rememberVehicle(vehicleId)
     try {
       localStorage.setItem('kosh:lastAccount', String(accountId))
       if (upi) localStorage.setItem('kosh:lastUpiAccount', String(accountId))
@@ -553,6 +598,12 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
             <span>{app.short}</span>
           </PickerChip>
         )}
+        {mode === 'expense' && myVehicles.length > 0 && (vehiclesOn || vehicleId) && (
+          <PickerChip active={panel === 'vehicle'} onClick={() => setPanel(panel === 'vehicle' ? 'keypad' : 'vehicle')} tint={myVehicles.find((v) => v.id === vehicleId)?.color}>
+            {vehicleId ? <span className="text-[15px] leading-none">{vehicleKinds[myVehicles.find((v) => v.id === vehicleId)?.kind ?? 'other'].icon}</span> : <Car className="size-4" />}
+            <span className="max-w-[120px] truncate">{myVehicles.find((v) => v.id === vehicleId)?.name ?? 'Vehicle'}</span>
+          </PickerChip>
+        )}
         <PickerChip active={panel === 'date'} onClick={() => setPanel(panel === 'date' ? 'keypad' : 'date')}>
           <CalendarDays className="size-4" />
           <span>{dayLabel(occurredAt.slice(0, 10))}</span>
@@ -621,6 +672,27 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
                   </button>
                 ))}
               </div>
+            )}
+            {panel === 'vehicle' && (
+              <VehiclePanel
+                vehicles={myVehicles}
+                selected={vehicleId}
+                fuel={isFuel}
+                odometer={vOdo}
+                litres={vQty}
+                fullTank={vFull}
+                amount={total}
+                onPick={(id) => {
+                  haptic(6)
+                  autoVehicle.current = false
+                  setVehicleId(id)
+                  if (id == null) setPanel('keypad')
+                }}
+                onOdometer={setVOdo}
+                onLitres={setVQty}
+                onFullTank={setVFull}
+                onDone={() => setPanel('keypad')}
+              />
             )}
             {panel === 'date' && <DatePicker value={occurredAt} onChange={setOccurredAt} onDone={() => setPanel('keypad')} />}
             {panel === 'category' && (
@@ -818,6 +890,95 @@ function Keypad({ onKey, onClear, done }: { onKey: (k: string) => void; onClear:
           </motion.button>
         )
       })}
+    </div>
+  )
+}
+
+function VehiclePanel({
+  vehicles,
+  selected,
+  fuel,
+  odometer,
+  litres,
+  fullTank,
+  amount,
+  onPick,
+  onOdometer,
+  onLitres,
+  onFullTank,
+  onDone,
+}: {
+  vehicles: Vehicle[]
+  selected: number | null
+  fuel: boolean
+  odometer: string
+  litres: string
+  fullTank: boolean
+  amount: number
+  onPick: (id: number | null) => void
+  onOdometer: (v: string) => void
+  onLitres: (v: string) => void
+  onFullTank: (v: boolean) => void
+  onDone: () => void
+}) {
+  const v = vehicles.find((x) => x.id === selected)
+  const ml = litres ? Number(litres) * 1000 : 0
+  const unit = v?.fuel === 'ev' ? 'kWh' : 'L'
+  return (
+    <div className="flex h-full flex-col gap-2 overflow-y-auto pb-2">
+      <div className="grid grid-cols-2 gap-2">
+        {vehicles.map((x) => (
+          <button key={x.id} onClick={() => onPick(x.id)} className={cn('press flex items-center gap-2.5 rounded-2xl p-3 text-left', x.id === selected ? 'bg-ink text-bg' : 'bg-surface-2')}>
+            <Glyph icon={vehicleKinds[x.kind].icon} color={x.color === '#F8FAFC' ? '#94A3B8' : x.color} size={32} />
+            <span className="min-w-0">
+              <span className="block truncate text-[14px] font-semibold">{x.name}</span>
+              <span className="block truncate text-[12px] opacity-60 tnum">{x.odometer != null ? km(x.odometer) : vehicleKinds[x.kind].label}</span>
+            </span>
+          </button>
+        ))}
+        <button onClick={() => onPick(null)} className={cn('press flex items-center justify-center rounded-2xl p-3 text-[14px] font-semibold', selected == null ? 'bg-ink text-bg' : 'bg-surface-2 text-ink-2')}>
+          Not for a vehicle
+        </button>
+      </div>
+      {v && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex h-12 items-center gap-2 rounded-2xl bg-surface-2 px-3.5">
+            <input
+              inputMode="numeric"
+              value={odometer}
+              onChange={(e) => onOdometer(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder={v.odometer != null ? String(v.odometer) : 'Odometer'}
+              className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold outline-none tnum placeholder:font-medium placeholder:text-ink-3"
+            />
+            <span className="text-[13px] font-semibold text-ink-3">km</span>
+          </label>
+          {fuel && (
+            <label className="flex h-12 items-center gap-2 rounded-2xl bg-surface-2 px-3.5">
+              <input
+                inputMode="decimal"
+                value={litres}
+                onChange={(e) => onLitres(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder={v.fuel === 'ev' ? 'Energy' : 'Litres'}
+                className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold outline-none tnum placeholder:font-medium placeholder:text-ink-3"
+              />
+              <span className="text-[13px] font-semibold text-ink-3">{unit}</span>
+            </label>
+          )}
+          {fuel && (
+            <div className="col-span-2 flex items-center justify-between gap-2 px-1">
+              <span className="text-[13px] text-ink-3">{ml > 0 && amount > 0 ? `${money(Math.round((amount * 1000) / ml))} per ${unit === 'L' ? 'litre' : unit}` : 'Litres and km work out your mileage'}</span>
+              <span className="flex items-center gap-2 text-[13px] font-medium">
+                Full {v.fuel === 'ev' ? 'charge' : 'tank'} <Toggle checked={fullTank} onChange={onFullTank} label="Full tank" />
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+      {v && (
+        <button onClick={onDone} className="press mt-auto h-11 shrink-0 rounded-2xl bg-accent text-[15px] font-semibold text-white">
+          Done
+        </button>
+      )}
     </div>
   )
 }

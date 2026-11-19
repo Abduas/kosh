@@ -1,17 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { ChartPie, House, Plus, Users, Wallet, Target, Tag, Settings as SettingsIcon } from 'lucide-react'
-import { lazy, Suspense, useEffect, type ReactNode } from 'react'
+import { CalendarClock, Car, ChartPie, FileText, History, House, Plus, Users, Wallet, Target, Tag, Settings as SettingsIcon } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react'
 import { Toaster } from 'sonner'
 import { Composer } from './components/Composer'
+import { GarageSheets } from './components/VehicleForms'
 import { PaymentCheck } from './components/PaymentCheck'
 import { cn } from './components/ui'
 import { api, type AuthStatus } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
-import { clearLocalData, clearSignedInData, useBootstrap } from './lib/queries'
+import { clearLocalData, clearSignedInData, useBootstrap, useData } from './lib/queries'
 import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
-import { closeScanner, composer, openComposer, openScanner, scanner } from './lib/store'
+import { closeScanner, composer, openComposer, openGarageSheet, openScanner, scanner } from './lib/store'
+import { hasFinance, hasVehicles, lastSpace, rememberSpace, spaceOfPath, type Space } from './lib/vehicles'
 import { launchScanEnabled, readPending } from './lib/upi'
 import { AccountDetail, Accounts } from './screens/Accounts'
 import { AuthScreen } from './screens/Auth'
@@ -26,6 +28,7 @@ import { Settings } from './screens/Settings'
 import { CaptureSettings } from './screens/Capture'
 import { Review } from './screens/Review'
 import { ImportScreen } from './screens/Import'
+import { Due, Garage, Logs, Papers, VehicleDetail } from './screens/Garage'
 
 export function App() {
   const status = useQuery({
@@ -128,18 +131,25 @@ function Splash() {
   )
 }
 
-const tabs = [
+type Tab = { to: string; label: string; icon: typeof House }
+
+const financeTabs: Tab[] = [
   { to: '/', label: 'Home', icon: House },
   { to: '/accounts', label: 'Accounts', icon: Wallet },
   { to: '/people', label: 'People', icon: Users },
   { to: '/insights', label: 'Insights', icon: ChartPie },
 ]
 
-const sideLinks = [
-  ...tabs,
+const vehicleTabs: Tab[] = [
+  { to: '/garage', label: 'Garage', icon: Car },
+  { to: '/due', label: 'Due', icon: CalendarClock },
+  { to: '/logs', label: 'Logs', icon: History },
+  { to: '/papers', label: 'Papers', icon: FileText },
+]
+
+const financeMore: Tab[] = [
   { to: '/budgets', label: 'Budgets', icon: Target },
   { to: '/categories', label: 'Categories', icon: Tag },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
 function isActive(to: string, path: string) {
@@ -148,6 +158,29 @@ function isActive(to: string, path: string) {
 
 function Shell() {
   const { path, search } = useLocation()
+  const prefs = useData().user.prefs
+  const finance = hasFinance(prefs)
+  const vehicles = hasVehicles(prefs)
+  // Money and Vehicles each have their own tabs; Settings keeps the last one's.
+  const pathSpace = spaceOfPath(path)
+  const preferred: Space = pathSpace ?? lastSpace()
+  const space: Space = preferred === 'vehicles' ? (vehicles ? 'vehicles' : 'finance') : finance ? 'finance' : 'vehicles'
+  useEffect(() => {
+    if (pathSpace) rememberSpace(pathSpace)
+  }, [pathSpace])
+
+  // Open where you were last, and keep away from a part that's turned off.
+  const launched = useRef(false)
+  useEffect(() => {
+    const first = !launched.current
+    launched.current = true
+    if (pathSpace === 'vehicles' && !vehicles) navigate('/', { replace: true })
+    else if (pathSpace === 'finance' && !finance) navigate('/garage', { replace: true })
+    else if (first && path === '/' && vehicles && lastSpace() === 'vehicles' && !search.toString()) navigate('/garage', { replace: true })
+  }, [path, pathSpace, finance, vehicles]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const add = () => (space === 'vehicles' ? openGarageSheet({ kind: 'menu' }) : openComposer())
+  const tabs = space === 'vehicles' ? vehicleTabs : financeTabs
 
   // Home-screen shortcuts: /?add=expense, /people?add=lend, /?scan=1
   useEffect(() => {
@@ -181,13 +214,15 @@ function Shell() {
   }, [])
 
   // Desktop shortcuts: N for new, / for search
+  const addRef = useRef(add)
+  addRef.current = add
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, [contenteditable], [role="dialog"]') || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === 'n') {
         e.preventDefault()
-        openComposer()
+        addRef.current()
       } else if (e.key === '/') {
         e.preventDefault()
         navigate('/activity?focus=1')
@@ -213,7 +248,18 @@ function Shell() {
   else if (path === '/settings/capture') screen = <CaptureSettings />
   else if (path === '/settings/import') screen = <ImportScreen />
   else if (path === '/review') screen = <Review />
-  else screen = <Home />
+  else if (path === '/garage') screen = <Garage />
+  else if ((params = match('/garage/:id', path))) screen = <VehicleDetail id={Number(params.id)} />
+  else if (path === '/due') screen = <Due />
+  else if (path === '/logs') screen = <Logs />
+  else if (path === '/papers') screen = <Papers />
+  else screen = finance ? <Home /> : <Garage />
+
+  const sideGroups: { title?: string; links: Tab[] }[] = [
+    ...(finance ? [{ title: vehicles ? 'Money' : undefined, links: [...financeTabs, ...financeMore] }] : []),
+    ...(vehicles ? [{ title: finance ? 'Vehicles' : undefined, links: vehicleTabs }] : []),
+    { links: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] },
+  ]
 
   return (
     <div className="min-h-dvh md:flex">
@@ -224,14 +270,17 @@ function Shell() {
           <span className="text-[19px] font-bold tracking-tight">Kosh</span>
         </a>
         <button
-          onClick={() => openComposer()}
+          onClick={add}
           className="press mb-6 flex h-11 items-center justify-center gap-2 rounded-2xl bg-accent font-semibold text-white shadow-[0_10px_30px_-12px_var(--accent)]"
         >
-          <Plus className="size-5" strokeWidth={2.5} /> New transaction
+          <Plus className="size-5" strokeWidth={2.5} /> {space === 'vehicles' ? 'Add to garage' : 'New transaction'}
           <kbd className="ml-1 rounded-md bg-white/20 px-1.5 text-[11px] font-semibold">N</kbd>
         </button>
-        <nav className="space-y-0.5">
-          {sideLinks.map((l) => {
+        <nav className="space-y-4">
+          {sideGroups.map((grp, gi) => (
+          <div key={gi} className="space-y-0.5">
+          {grp.title && <p className="px-3 pb-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-ink-3">{grp.title}</p>}
+          {grp.links.map((l) => {
             const active = isActive(l.to, path)
             return (
               <a
@@ -246,6 +295,8 @@ function Shell() {
               </a>
             )
           })}
+          </div>
+          ))}
         </nav>
       </aside>
 
@@ -263,18 +314,19 @@ function Shell() {
         </AnimatePresence>
       </main>
 
-      <TabBar path={path} />
+      <TabBar path={path} tabs={tabs} onAdd={add} addLabel={space === 'vehicles' ? 'Add to garage' : 'Add transaction'} />
       <Composer />
+      <GarageSheets />
       <ScannerHost />
       <PaymentCheck />
     </div>
   )
 }
 
-function TabBar({ path }: { path: string }) {
+function TabBar({ path, tabs, onAdd, addLabel }: { path: string; tabs: Tab[]; onAdd: () => void; addLabel: string }) {
   const left = tabs.slice(0, 2)
   const right = tabs.slice(2)
-  const item = (t: (typeof tabs)[number]) => {
+  const item = (t: Tab) => {
     const active = isActive(t.to, path)
     return (
       <a
@@ -302,9 +354,9 @@ function TabBar({ path }: { path: string }) {
             whileTap={{ scale: 0.92 }}
             onClick={() => {
               haptic(10)
-              openComposer()
+              onAdd()
             }}
-            aria-label="Add transaction"
+            aria-label={addLabel}
             className="grid h-[42px] w-[64px] place-items-center rounded-[14px] bg-accent text-white"
           >
             <Plus className="size-6" strokeWidth={2.6} />

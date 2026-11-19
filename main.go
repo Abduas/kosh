@@ -113,6 +113,21 @@ func newServer(db *sql.DB) http.Handler {
 
 	mux.HandleFunc("GET /api/payees", a.authed(a.lookupPayee))
 
+	// Vehicles: the garage, fuel and service logs, papers and their files.
+	mux.HandleFunc("GET /api/vehicles", a.authed(a.listVehicles))
+	mux.HandleFunc("POST /api/vehicles", a.authed(a.createVehicle))
+	mux.HandleFunc("PATCH /api/vehicles/{id}", a.authed(a.updateVehicle))
+	mux.HandleFunc("DELETE /api/vehicles/{id}", a.authed(a.deleteVehicle))
+	mux.HandleFunc("POST /api/vehicle-logs", a.authed(a.createVehicleLog))
+	mux.HandleFunc("PATCH /api/vehicle-logs/{id}", a.authed(a.updateVehicleLog))
+	mux.HandleFunc("DELETE /api/vehicle-logs/{id}", a.authed(a.deleteVehicleLog))
+	mux.HandleFunc("POST /api/vehicle-documents", a.authed(a.createVehicleDoc))
+	mux.HandleFunc("PATCH /api/vehicle-documents/{id}", a.authed(a.updateVehicleDoc))
+	mux.HandleFunc("DELETE /api/vehicle-documents/{id}", a.authed(a.deleteVehicleDoc))
+	mux.HandleFunc("PUT /api/vehicle-documents/{id}/file", a.authed(a.uploadDocFile))
+	mux.HandleFunc("GET /api/vehicle-documents/{id}/file", a.authed(a.openDocFile))
+	mux.HandleFunc("DELETE /api/vehicle-documents/{id}/file", a.authed(a.deleteDocFile))
+
 	mux.HandleFunc("GET /api/insights", a.authed(a.insights))
 	mux.HandleFunc("GET /api/insights/balance", a.authed(a.balanceHistory))
 

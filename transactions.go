@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"math"
 	"net/http"
@@ -32,15 +33,21 @@ type transaction struct {
 	Payee       string `json:"payee"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
+	// The vehicle an expense was for (see vehicleLink), or null.
+	Vehicle json.RawMessage `json:"vehicle"`
 }
 
 var personKinds = map[string]bool{"lend": true, "borrow": true, "collect": true, "repay": true}
 
-const txColumns = `t.id, t.kind, t.amount, t.account_id, t.to_account_id, t.category_id, t.person_id, t.note, t.occurred_at, t.source, t.ref, t.payee, t.created_at, t.updated_at`
+const txColumns = `t.id, t.kind, t.amount, t.account_id, t.to_account_id, t.category_id, t.person_id, t.note, t.occurred_at, t.source, t.ref, t.payee, t.created_at, t.updated_at, ` + txVehicleColumn
 
 func scanTx(s interface{ Scan(...any) error }) (transaction, error) {
 	var t transaction
-	err := s.Scan(&t.ID, &t.Kind, &t.Amount, &t.AccountID, &t.ToAccountID, &t.CategoryID, &t.PersonID, &t.Note, &t.OccurredAt, &t.Source, &t.Ref, &t.Payee, &t.CreatedAt, &t.UpdatedAt)
+	var v sql.NullString
+	err := s.Scan(&t.ID, &t.Kind, &t.Amount, &t.AccountID, &t.ToAccountID, &t.CategoryID, &t.PersonID, &t.Note, &t.OccurredAt, &t.Source, &t.Ref, &t.Payee, &t.CreatedAt, &t.UpdatedAt, &v)
+	if v.Valid {
+		t.Vehicle = json.RawMessage(v.String)
+	}
 	return t, err
 }
 
@@ -57,6 +64,8 @@ type txInput struct {
 	Payee       *string `json:"payee"`
 	// A reviewed bank message this transaction records (auto-capture).
 	CaptureID *int64 `json:"captureId"`
+	// The vehicle an expense was for. Left out, it stays as it was.
+	Vehicle optVehicle `json:"vehicle"`
 }
 
 // sources a client may set. "upi-scan" is a payment started from Kosh's QR
@@ -206,6 +215,10 @@ func (a *api) createTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		respondErr(w, err)
 		return
 	}
+	if err := a.validateVehicleLink(r.Context(), uid, &t, in.Vehicle.V); err != nil {
+		respondErr(w, err)
+		return
+	}
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		serverError(w, err)
@@ -224,6 +237,12 @@ func (a *api) createTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		return
 	}
 	id, _ := res.LastInsertId()
+	if in.Vehicle.V != nil {
+		if err := linkTxVehicle(r.Context(), tx, uid, id, t, in.Vehicle.V); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if in.CaptureID != nil {
 		if err := markCaptureSaved(r.Context(), tx, *in.CaptureID, id); err != nil {
 			serverError(w, err)
@@ -272,6 +291,10 @@ func (a *api) createTransactions(w http.ResponseWriter, r *http.Request, uid int
 			respondErr(w, err)
 			return
 		}
+		if err := a.validateVehicleLink(r.Context(), uid, &list[i], item.Vehicle.V); err != nil {
+			respondErr(w, err)
+			return
+		}
 	}
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -287,6 +310,12 @@ func (a *api) createTransactions(w http.ResponseWriter, r *http.Request, uid int
 			return
 		}
 		ids[i], _ = res.LastInsertId()
+		if v := in.Items[i].Vehicle.V; v != nil {
+			if err := linkTxVehicle(r.Context(), tx, uid, ids[i], t, v); err != nil {
+				serverError(w, err)
+				return
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		serverError(w, err)
@@ -322,9 +351,32 @@ func (a *api) updateTransaction(w http.ResponseWriter, r *http.Request, uid int6
 		respondErr(w, err)
 		return
 	}
-	if _, err := a.db.ExecContext(r.Context(), `UPDATE transactions SET kind = ?, amount = ?, account_id = ?, to_account_id = ?, category_id = ?,
+	if err := a.validateVehicleLink(r.Context(), uid, &t, in.Vehicle.V); err != nil {
+		respondErr(w, err)
+		return
+	}
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(r.Context(), `UPDATE transactions SET kind = ?, amount = ?, account_id = ?, to_account_id = ?, category_id = ?,
 		person_id = ?, note = ?, occurred_at = ?, source = ?, payee = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
 		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, id, uid); err != nil {
+		serverError(w, err)
+		return
+	}
+	if in.Vehicle.Set {
+		err = linkTxVehicle(r.Context(), tx, uid, id, t, in.Vehicle.V)
+	} else {
+		err = syncTxVehicle(r.Context(), tx, uid, id, t)
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -340,6 +392,12 @@ func (a *api) deleteTransaction(w http.ResponseWriter, r *http.Request, uid int6
 	id, ok := pathID(r)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	// A fuel fill or service paid with it goes too; a document only loses
+	// its link (the paper is still valid).
+	if _, err := a.db.ExecContext(r.Context(), `DELETE FROM vehicle_logs WHERE transaction_id = ? AND user_id = ?`, id, uid); err != nil {
+		serverError(w, err)
 		return
 	}
 	if _, err := a.db.ExecContext(r.Context(), `DELETE FROM transactions WHERE id = ? AND user_id = ?`, id, uid); err != nil {
@@ -380,6 +438,10 @@ func (a *api) listTransactions(w http.ResponseWriter, r *http.Request, uid int64
 	}
 	if v, err := strconv.ParseInt(q.Get("person"), 10, 64); err == nil {
 		where = append(where, "t.person_id = ?")
+		args = append(args, v)
+	}
+	if v, err := strconv.ParseInt(q.Get("vehicle"), 10, 64); err == nil {
+		where = append(where, "EXISTS (SELECT 1 FROM vehicle_logs l WHERE l.transaction_id = t.id AND l.vehicle_id = ?)")
 		args = append(args, v)
 	}
 	if kinds := q.Get("kind"); kinds != "" {

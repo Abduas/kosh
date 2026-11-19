@@ -12,6 +12,7 @@ import {
   type Budget,
   type Capture,
   type Category,
+  type Garage,
   type Insights,
   type Person,
   type Prefs,
@@ -150,7 +151,7 @@ export function useBudgets(from: string) {
 
 /** Money changed: refresh balances, lists and charts. */
 export function invalidateMoney() {
-  for (const key of ['bootstrap', 'tx', 'insights', 'balance', 'budgets', 'captures']) {
+  for (const key of ['bootstrap', 'tx', 'insights', 'balance', 'budgets', 'captures', 'garage']) {
     queryClient.invalidateQueries({ queryKey: [key] })
   }
 }
@@ -167,6 +168,7 @@ export function txInput(t: Transaction): TxInput {
     occurredAt: t.occurredAt,
     source: t.source === 'upi-scan' || t.source === 'sms' ? t.source : 'manual',
     payee: t.payee,
+    vehicle: t.vehicle,
   }
 }
 
@@ -271,4 +273,52 @@ export function useDismissCapture() {
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['captures'] }),
   })
+}
+
+// ---- Vehicles ----
+
+export function useGarage(enabled = true) {
+  return useQuery({ queryKey: ['garage'], queryFn: () => api<Garage>('GET', '/api/vehicles'), enabled })
+}
+
+/** A vehicle cost can also be an expense in Money, so refresh both. */
+export function invalidateGarage() {
+  invalidateMoney()
+}
+
+type GarageEntity = 'vehicles' | 'vehicle-logs' | 'vehicle-documents'
+
+export function useSaveGarage<T>(entity: GarageEntity) {
+  return useMutation({
+    mutationFn: ({ id, body }: { id?: number; body: Record<string, unknown> }) =>
+      id ? api<T>('PATCH', `/api/${entity}/${id}`, body) : api<T>('POST', `/api/${entity}`, body),
+    onSuccess: invalidateGarage,
+  })
+}
+
+export function useDeleteGarage(entity: GarageEntity) {
+  return useMutation({
+    mutationFn: (id: number) => api('DELETE', `/api/${entity}/${id}`),
+    onSuccess: invalidateGarage,
+  })
+}
+
+/** Uploads a document's photo or PDF, replacing the one it had. */
+export async function uploadDocFile(id: number, file: File) {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  let res: Response
+  try {
+    res = await fetch(`/api/vehicle-documents/${id}/file`, { method: 'PUT', body: form, credentials: 'same-origin' })
+  } catch {
+    throw new ApiError(0, "You're offline. The document is saved; add the file again later.")
+  }
+  if (!res.ok) {
+    let msg = res.statusText
+    try {
+      msg = (await res.json()).error ?? msg
+    } catch {}
+    throw new ApiError(res.status, msg)
+  }
+  queryClient.invalidateQueries({ queryKey: ['garage'] })
 }

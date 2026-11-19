@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Transaction } from '../lib/api'
 import { dayLabel, timeLabel } from '../lib/format'
 import { haptic } from '../lib/look'
-import { useData, useDeleteTx, type Data } from '../lib/queries'
+import { useData, useDeleteTx, useGarage, type Data } from '../lib/queries'
 import { editTransaction } from '../lib/store'
 import { describeTx, isPersonKind, txSign } from '../lib/tx'
 import { Amount } from './Money'
@@ -68,7 +68,11 @@ export function TxRow({ t, accountId, showDate }: { t: Transaction; accountId?: 
   const row = useRef<HTMLDivElement>(null)
   const dragged = useRef(false) // a swipe must not also count as a tap
   const reveal = useTransform(x, [OPEN_X, -20, 0], [1, 0.4, 0])
-  const { title, subtitle } = describeTx(t, d)
+  const described = describeTx(t, d)
+  const title = described.title
+  // An expense for a vehicle says which one.
+  const vehicle = useGarage(!!t.vehicle).data?.vehicles.find((v) => v.id === t.vehicle?.vehicleId)
+  const subtitle = vehicle ? `${described.subtitle} · ${vehicle.name}` : described.subtitle
 
   const settle = (to: number) => animate(x, to, { type: 'spring', stiffness: 500, damping: 40 })
   const close = () => {

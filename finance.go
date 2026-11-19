@@ -230,6 +230,23 @@ var allowedPrefs = map[string]func(any) bool{
 	"upiAccountId": func(v any) bool { f, ok := v.(float64); return ok && f >= 0 && f == float64(int64(f)) },
 	// Auto-capture saves a bank message straight away when it knows the payee.
 	"captureAuto": func(v any) bool { _, ok := v.(bool); return ok },
+	// The parts of Kosh you use: "finance", "vehicles" or both. Missing
+	// means finance only, as before vehicles existed.
+	"modules": func(v any) bool {
+		list, ok := v.([]any)
+		if !ok || len(list) == 0 || len(list) > 2 {
+			return false
+		}
+		seen := map[string]bool{}
+		for _, x := range list {
+			s, ok := x.(string)
+			if !ok || (s != "finance" && s != "vehicles") || seen[s] {
+				return false
+			}
+			seen[s] = true
+		}
+		return true
+	},
 }
 
 func (a *api) updateMe(w http.ResponseWriter, r *http.Request, uid int64) {

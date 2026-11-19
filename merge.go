@@ -256,6 +256,17 @@ func mergeUsers(ctx context.Context, tx *sql.Tx, src, dst int64) error {
 		return err
 	}
 
+	// Vehicles, their logs and papers move as they are.
+	for _, q := range []string{
+		`UPDATE vehicles SET user_id = ?, sort_order = sort_order + 1000 WHERE user_id = ?`,
+		`UPDATE vehicle_logs SET user_id = ? WHERE user_id = ?`,
+		`UPDATE vehicle_documents SET user_id = ? WHERE user_id = ?`,
+	} {
+		if err := exec(q, dst, src); err != nil {
+			return err
+		}
+	}
+
 	// Bank messages. Both accounts may have the same message, if a phone
 	// forwarded to both; keep the copy that was saved as a transaction.
 	type capture struct {
