@@ -1,9 +1,9 @@
-import { format } from 'date-fns'
+import { parseISO } from 'date-fns'
 import { ListOrdered, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type RefObject } from 'react'
 import { TxList } from '../components/TxList'
 import { Chip, EmptyState, Skeleton } from '../components/ui'
-import { ymd } from '../lib/format'
+import { rangeLabel, ymd } from '../lib/format'
 import { useData, useTransactions, type TxFilters } from '../lib/queries'
 import { navigate, useLocation } from '../lib/router'
 import { openComposer } from '../lib/store'
@@ -19,7 +19,8 @@ const kindFilters = [
 /**
  * Every transaction, newest first, grouped by day: the main list on Home.
  * Search and type filters show when searching. Links from Insights can narrow
- * it to a category, an account or a month (?category=, ?account=, ?month=).
+ * it to a category, an account or a date range (?category=, ?account=,
+ * ?from=&to=, or ?month=YYYY-MM from older links).
  */
 export function Log({ searching, inputRef, onCloseSearch }: { searching: boolean; inputRef: RefObject<HTMLInputElement | null>; onCloseSearch: () => void }) {
   const d = useData()
@@ -31,6 +32,8 @@ export function Log({ searching, inputRef, onCloseSearch }: { searching: boolean
   const categoryId = Number(search.get('category')) || undefined
   const accountFilter = Number(search.get('account')) || undefined
   const month = search.get('month') ?? undefined
+  const fromParam = search.get('from') ?? undefined
+  const toParam = search.get('to') ?? undefined
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 250)
@@ -46,28 +49,30 @@ export function Log({ searching, inputRef, onCloseSearch }: { searching: boolean
     }
   }, [searching])
 
-  const monthRange = useMemo(() => {
-    if (!month) return {}
+  const dateRange = useMemo(() => {
+    if (fromParam && toParam) return { from: fromParam, to: toParam, label: rangeLabel(parseISO(fromParam), parseISO(toParam)) }
+    if (!month) return undefined
     const start = new Date(month + '-01T00:00')
-    return { from: ymd(start), to: ymd(new Date(start.getFullYear(), start.getMonth() + 1, 0)) }
-  }, [month])
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0)
+    return { from: ymd(start), to: ymd(end), label: rangeLabel(start, end) }
+  }, [month, fromParam, toParam])
 
   const filters: TxFilters = useMemo(
     () => ({
-      ...(debounced ? {} : monthRange),
+      ...(debounced || !dateRange ? {} : { from: dateRange.from, to: dateRange.to }),
       kind: kindFilters.find((k) => k.id === kind)?.kinds || undefined,
       q: debounced || undefined,
       category: categoryId,
       account: accountFilter,
     }),
-    [monthRange, kind, debounced, categoryId, accountFilter],
+    [dateRange, kind, debounced, categoryId, accountFilter],
   )
   const tx = useTransactions(filters)
   const items = useMemo(() => tx.data?.pages.flatMap((p) => p.items) ?? [], [tx.data])
 
   const category = categoryId ? d.categoriesById.get(categoryId) : undefined
   const account = accountFilter ? d.accountsById.get(accountFilter) : undefined
-  const narrowed = !!(category || account || month)
+  const narrowed = !!(category || account || dateRange)
 
   return (
     <div>
@@ -107,7 +112,7 @@ export function Log({ searching, inputRef, onCloseSearch }: { searching: boolean
       {narrowed && (
         <div className="no-scrollbar mb-3 flex gap-2 overflow-x-auto">
           <Chip active onClick={() => navigate('/', { replace: true })}>
-            {[category && `${category.icon} ${category.name}`, account && `${account.icon} ${account.name}`, month && format(new Date(month + '-01T00:00'), 'MMMM yyyy')].filter(Boolean).join(' · ')}
+            {[category && `${category.icon} ${category.name}`, account && `${account.icon} ${account.name}`, dateRange?.label].filter(Boolean).join(' · ')}
             <X className="size-3.5" />
           </Chip>
         </div>

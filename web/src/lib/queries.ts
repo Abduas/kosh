@@ -139,10 +139,11 @@ export function useBalanceHistory(days: number) {
   })
 }
 
-export function useBudgets(month: string) {
+/** Budgets with what's spent in the month beginning on `from` (YYYY-MM-DD, see monthPeriod). */
+export function useBudgets(from: string) {
   return useQuery({
-    queryKey: ['budgets', month],
-    queryFn: () => api<Budget[]>('GET', '/api/budgets?' + qs({ month })),
+    queryKey: ['budgets', from],
+    queryFn: () => api<Budget[]>('GET', '/api/budgets?' + qs({ from })),
     placeholderData: (prev) => prev,
   })
 }

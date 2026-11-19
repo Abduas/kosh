@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Amount, BigAmount } from '../components/Money'
 import { IconButton } from '../components/ui'
-import { ymd } from '../lib/format'
+import { monthPeriod, ymd } from '../lib/format'
 import { haptic } from '../lib/look'
 import { useBudgets, useCaptures, useData, useInsights } from '../lib/queries'
 import { clearParam, navigate, useBackToClose, useLocation } from '../lib/router'
@@ -20,11 +20,9 @@ function readPeriod(): Period {
   }
 }
 
-function range(period: Period, weekStart: number) {
+function range(period: Period, weekStart: number, monthStart: number) {
   const now = new Date()
-  if (period === 'month') {
-    return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }
-  }
+  if (period === 'month') return monthPeriod(now, monthStart)
   const back = (now.getDay() - weekStart + 7) % 7
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back)
   return { from: ymd(start), to: ymd(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6)) }
@@ -44,10 +42,10 @@ export function Home() {
 
   useBackToClose(searching, () => setSearching(false))
 
-  const r = range(period, d.user.prefs.weekStart ?? 1)
+  const monthStart = d.user.prefs.monthStart ?? 1
+  const r = range(period, d.user.prefs.weekStart ?? 1, monthStart)
   const totals = useInsights(r.from, r.to).data?.totals
-  const month = ymd(new Date()).slice(0, 7)
-  const overall = useBudgets(month).data?.find((b) => b.categoryId === null)
+  const overall = useBudgets(monthPeriod(new Date(), monthStart).from).data?.find((b) => b.categoryId === null)
   const toReview = useCaptures().data?.length ?? 0
 
   // Focus right inside the tap, so iPhone opens the keyboard.

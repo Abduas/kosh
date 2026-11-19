@@ -1,4 +1,4 @@
-import { addMonths, differenceInCalendarDays, endOfMonth, format } from 'date-fns'
+import { addMonths, differenceInCalendarDays } from 'date-fns'
 import { ChevronLeft, ChevronRight, Plus, Target, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Donut } from '../components/Charts'
@@ -7,22 +7,24 @@ import { Amount, BigAmount } from '../components/Money'
 import { Sheet } from '../components/Sheet'
 import { Button, Card, EmptyState, Field, Glyph, IconButton, ProgressBar, ScreenHeader, SectionTitle, cn } from '../components/ui'
 import type { Budget } from '../lib/api'
-import { money, percent } from '../lib/format'
+import { money, monthPeriod, percent } from '../lib/format'
 import { useBudgets, useData, useDeleteBudget, useSetBudget } from '../lib/queries'
 
 export function Budgets() {
   const d = useData()
-  const [month, setMonth] = useState(new Date())
-  const key = format(month, 'yyyy-MM')
-  const isCurrent = key === format(new Date(), 'yyyy-MM')
-  const q = useBudgets(key)
+  const monthStart = d.user.prefs.monthStart ?? 1
+  const [anchor, setAnchor] = useState(new Date())
+  const month = monthPeriod(anchor, monthStart)
+  const isCurrent = month.from === monthPeriod(new Date(), monthStart).from
+  const q = useBudgets(month.from)
+  const shift = (n: number) => setAnchor(addMonths(month.start, n))
   const [editing, setEditing] = useState<{ categoryId: number | null; budget?: Budget } | null>(null)
   const [picking, setPicking] = useState(false)
 
   const budgets = q.data ?? []
   const overall = budgets.find((b) => b.categoryId === null)
   const perCategory = budgets.filter((b) => b.categoryId !== null)
-  const daysLeft = isCurrent ? differenceInCalendarDays(endOfMonth(month), new Date()) + 1 : 0
+  const daysLeft = isCurrent ? differenceInCalendarDays(month.end, new Date()) + 1 : 0
   const usedIds = new Set(perCategory.map((b) => b.categoryId))
   const available = d.categories.filter((c) => c.kind === 'expense' && !c.archived && !usedIds.has(c.id))
 
@@ -39,11 +41,11 @@ export function Budgets() {
       />
 
       <div className="mb-4 flex items-center justify-between">
-        <button onClick={() => setMonth((m) => addMonths(m, -1))} aria-label="Previous month" className="press grid size-10 place-items-center rounded-full text-ink-2 hover:bg-surface">
+        <button onClick={() => shift(-1)} aria-label="Previous month" className="press grid size-10 place-items-center rounded-full text-ink-2 hover:bg-surface">
           <ChevronLeft className="size-5" />
         </button>
-        <p className="text-[15px] font-semibold">{format(month, 'MMMM yyyy')}</p>
-        <button onClick={() => setMonth((m) => addMonths(m, 1))} disabled={isCurrent} aria-label="Next month" className={cn('press grid size-10 place-items-center rounded-full text-ink-2 hover:bg-surface', isCurrent && 'opacity-30')}>
+        <p className="text-[15px] font-semibold">{month.label}</p>
+        <button onClick={() => shift(1)} disabled={isCurrent} aria-label="Next month" className={cn('press grid size-10 place-items-center rounded-full text-ink-2 hover:bg-surface', isCurrent && 'opacity-30')}>
           <ChevronRight className="size-5" />
         </button>
       </div>

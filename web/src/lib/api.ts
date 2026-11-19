@@ -11,6 +11,8 @@ export type Prefs = {
   hideAmounts?: boolean
   onboarded?: boolean
   weekStart?: 0 | 1
+  /** Day of the month a month begins on, like payday (1–28). Default 1. */
+  monthStart?: number
   /** Account scan & pay uses by default; 0 or missing means none chosen. */
   upiAccountId?: number
   /** Auto-capture saves a bank message straight away when it knows the payee. Default on. */

@@ -223,6 +223,9 @@ var allowedPrefs = map[string]func(any) bool{
 	"hideAmounts": func(v any) bool { _, ok := v.(bool); return ok },
 	"onboarded":   func(v any) bool { _, ok := v.(bool); return ok },
 	"weekStart":   func(v any) bool { f, ok := v.(float64); return ok && (f == 0 || f == 1) },
+	// The day of the month a budget month begins, like payday. 1 is the
+	// calendar month; 28 at most so every month has that day.
+	"monthStart": func(v any) bool { f, ok := v.(float64); return ok && f >= 1 && f <= 28 && f == float64(int64(f)) },
 	// The account scan & pay uses unless you pick another; 0 means none chosen.
 	"upiAccountId": func(v any) bool { f, ok := v.(float64); return ok && f >= 0 && f == float64(int64(f)) },
 	// Auto-capture saves a bank message straight away when it knows the payee.

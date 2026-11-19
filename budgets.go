@@ -17,13 +17,18 @@ type budget struct {
 	Spent      int64  `json:"spent"`
 }
 
-// listBudgets returns each budget with what's been spent against it in month (YYYY-MM).
+// listBudgets returns each budget with what's been spent against it in the
+// month that begins on from (YYYY-MM-DD; the day comes from the "month
+// starts on" setting), or in the calendar month (YYYY-MM) of older clients.
 func (a *api) listBudgets(w http.ResponseWriter, r *http.Request, uid int64) {
-	month, err := time.Parse("2006-01", r.URL.Query().Get("month"))
+	from, err := time.Parse(dateLayout, r.URL.Query().Get("from"))
 	if err != nil {
-		month = time.Now()
+		month, err := time.Parse("2006-01", r.URL.Query().Get("month"))
+		if err != nil {
+			month = time.Now()
+		}
+		from = time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC)
 	}
-	from := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC)
 	to := from.AddDate(0, 1, 0)
 	rows, err := a.db.QueryContext(r.Context(), `SELECT b.id, b.category_id, b.amount,
 		COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.user_id = b.user_id AND t.kind = 'expense'

@@ -5,20 +5,21 @@ import { Bars, Donut } from '../components/Charts'
 import { Amount, BigAmount } from '../components/Money'
 import { TxRow } from '../components/TxList'
 import { Card, EmptyState, Glyph, ScreenHeader, SectionTitle, Segmented, TextLink, cn } from '../components/ui'
-import { money, percent, ymd } from '../lib/format'
+import { money, monthPeriod, percent, ymd } from '../lib/format'
 import { useData, useInsights } from '../lib/queries'
 import { navigate } from '../lib/router'
 
 type Period = 'week' | 'month' | 'year'
 
-function range(period: Period, anchor: Date, weekStart: 0 | 1) {
+function range(period: Period, anchor: Date, weekStart: 0 | 1, monthStart: number) {
   if (period === 'week') {
     const s = startOfWeek(anchor, { weekStartsOn: weekStart })
     const e = endOfWeek(anchor, { weekStartsOn: weekStart })
     return { from: s, to: e, label: `${format(s, 'd MMM')} – ${format(e, 'd MMM')}` }
   }
   if (period === 'month') {
-    return { from: new Date(anchor.getFullYear(), anchor.getMonth(), 1), to: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0), label: format(anchor, 'MMMM yyyy') }
+    const m = monthPeriod(anchor, monthStart)
+    return { from: m.start, to: m.end, label: m.label }
   }
   return { from: new Date(anchor.getFullYear(), 0, 1), to: new Date(anchor.getFullYear(), 11, 31), label: format(anchor, 'yyyy') }
 }
@@ -35,7 +36,7 @@ export function Insights() {
   const [bar, setBar] = useState<number | null>(null)
   const [slice, setSlice] = useState<string | number | null>(null)
 
-  const r = range(period, anchor, d.user.prefs.weekStart ?? 1)
+  const r = range(period, anchor, d.user.prefs.weekStart ?? 1, d.user.prefs.monthStart ?? 1)
   const from = ymd(r.from)
   const to = ymd(r.to)
   const atPresent = r.to >= new Date(new Date().setHours(0, 0, 0, 0))
@@ -86,7 +87,7 @@ export function Insights() {
   const lendingActive = data && (data.totals.lend || data.totals.borrow || data.totals.collect || data.totals.repay)
 
   const change = (n: number) => {
-    setAnchor((a) => shift(period, a, n))
+    setAnchor((a) => shift(period, period === 'month' ? r.from : a, n))
     setBar(null)
     setSlice(null)
   }
@@ -192,7 +193,7 @@ export function Insights() {
               {cats.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => (slice === c.id ? navigate(`/activity?category=${c.id}&month=${from.slice(0, 7)}`) : setSlice(c.id))}
+                  onClick={() => (slice === c.id ? navigate(`/activity?category=${c.id}&from=${from}&to=${to}`) : setSlice(c.id))}
                   className={cn('press flex w-full items-center gap-3 rounded-2xl p-2 text-left transition-colors', slice === c.id ? 'bg-surface-2' : 'hover:bg-surface-2/60')}
                 >
                   <Glyph icon={c.icon} color={c.color} size={38} />

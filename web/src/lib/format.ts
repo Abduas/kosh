@@ -94,6 +94,27 @@ export function dayLabel(date: string): string {
   return format(d, isThisYear(d) ? 'EEE, d MMM' : 'EEE, d MMM yyyy')
 }
 
+/**
+ * The month that holds day d, when months start on day `start` (1–28, like
+ * payday). With start 1 it's the calendar month.
+ */
+export function monthPeriod(d: Date, start = 1) {
+  const back = d.getDate() < start ? 1 : 0
+  const s = new Date(d.getFullYear(), d.getMonth() - back, start)
+  const e = new Date(s.getFullYear(), s.getMonth() + 1, start - 1)
+  return { start: s, end: e, from: ymd(s), to: ymd(e), label: rangeLabel(s, e) }
+}
+
+/** "November 2026" for a calendar month, otherwise "15 Nov – 14 Dec". */
+export function rangeLabel(s: Date, e: Date): string {
+  const lastDay = new Date(s.getFullYear(), s.getMonth() + 1, 0).getDate()
+  if (s.getDate() === 1 && e.getMonth() === s.getMonth() && e.getDate() === lastDay) return format(s, 'MMMM yyyy')
+  const day = (x: Date) => format(x, isThisYear(x) ? 'd MMM' : 'd MMM yyyy')
+  return `${day(s)} – ${day(e)}`
+}
+
+export const ordinal = (n: number) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th')
+
 export function shortDate(date: string): string {
   const d = parseISO(date)
   if (isToday(d)) return 'Today'

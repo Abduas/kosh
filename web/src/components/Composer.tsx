@@ -1,10 +1,11 @@
+import { parseISO } from 'date-fns'
 import { AnimatePresence, motion } from 'motion/react'
 import { Drawer } from 'vaul'
 import { AlignLeft, ArrowRight, CalendarDays, Check, Delete, LayoutGrid, LoaderCircle, Lock, Pencil, Plus, ScanLine, Store, Trash2, TriangleAlert, UserRound, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { Account, Category, Person, Transaction, TxInput, TxKind } from '../lib/api'
-import { currencySymbol, dayLabel, getCurrency, localNow, money, pad, ymd } from '../lib/format'
+import { currencySymbol, dayLabel, getCurrency, localNow, money, monthPeriod, pad, ymd } from '../lib/format'
 import { haptic, palette } from '../lib/look'
 import { useBudgets, useData, useDeleteTx, useSaveEntity, useSaveTx, useSaveTxs, useUpdateMe } from '../lib/queries'
 import { payableAccounts } from '../lib/pay'
@@ -183,7 +184,7 @@ function ComposerBody({ editing, preset }: { editing: Transaction | null; preset
   const myShare = splitting ? (includeMe ? shares[0] : 0) : total
 
   // How this expense sits against the month's budget for its category (or overall).
-  const budgets = useBudgets(occurredAt.slice(0, 7))
+  const budgets = useBudgets(monthPeriod(occurredAt ? parseISO(occurredAt) : new Date(), d.user.prefs.monthStart ?? 1).from)
   const budgetNote = (() => {
     if (mode !== 'expense' || editing || !budgets.data) return null
     const b = budgets.data.find((x) => x.categoryId === categoryId && categoryId != null) ?? budgets.data.find((x) => x.categoryId === null)

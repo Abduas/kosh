@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Sheet } from '../components/Sheet'
 import { Avatar, Button, Field, ListRow, ScreenHeader, SectionTitle, Segmented, TextInput, Toggle, cn } from '../components/ui'
 import { api, type AuthStatus, type Bootstrap, type MergeOffer, type Prefs, type User } from '../lib/api'
+import { ordinal } from '../lib/format'
 import { accents } from '../lib/look'
 import { invalidateMoney, queryClient, useData, useUpdateMe } from '../lib/queries'
 import { clearParam, navigate } from '../lib/router'
@@ -171,6 +172,24 @@ export function Settings() {
             {currencies.map((c) => (
               <option key={c.code} value={c.code}>
                 {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium">Month starts on</p>
+            <p className="text-[12px] text-ink-3">Like your payday. "This month", budgets and insights count from this day.</p>
+          </div>
+          <select
+            value={prefs.monthStart ?? 1}
+            onChange={(e) => setPref({ monthStart: Number(e.target.value) })}
+            className="h-9 shrink-0 rounded-xl bg-surface-2 px-3 text-[14px] font-semibold outline-none"
+            aria-label="Month starts on"
+          >
+            {Array.from({ length: 28 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n === 1 ? '1st (calendar)' : ordinal(n)}
               </option>
             ))}
           </select>

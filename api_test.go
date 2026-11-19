@@ -222,6 +222,17 @@ func TestFinanceFlow(t *testing.T) {
 	if len(budgets) != 1 || budgets[0].Amount != 7_000_00 || budgets[0].Spent == 0 {
 		t.Errorf("budgets = %+v", budgets)
 	}
+	// A month that starts on another day: the 1st matches the calendar
+	// month, and a month starting after these transactions has spent nothing.
+	var fromFirst, later []budget
+	me.do("GET", "/api/budgets?from=2026-10-01", nil, 200, &fromFirst)
+	me.do("GET", "/api/budgets?from=2026-11-15", nil, 200, &later)
+	if len(fromFirst) != 1 || fromFirst[0].Spent != budgets[0].Spent || len(later) != 1 || later[0].Spent != 0 {
+		t.Errorf("budgets from the 1st = %+v, from 15 Nov = %+v", fromFirst, later)
+	}
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"monthStart": 15}}, 200, nil)
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"monthStart": 31}}, 400, nil)
+	me.do("PATCH", "/api/me", map[string]any{"prefs": map[string]any{"monthStart": 1.5}}, 400, nil)
 
 	// Accounts and people with history can't be deleted.
 	me.do("DELETE", fmt.Sprintf("/api/accounts/%d", bank.ID), nil, 409, nil)
