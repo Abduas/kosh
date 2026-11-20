@@ -367,6 +367,9 @@ var migrations = []string{
 	// interest.
 	`ALTER TABLE categories ADD COLUMN role TEXT NOT NULL DEFAULT '';
 	UPDATE categories SET role = 'interest' WHERE kind = 'income' AND name = 'Interest';`,
+	// A loan written off as an expense remembers who it was lent to
+	// (writeoff.go), so it stays in that person's history.
+	`ALTER TABLE transactions ADD COLUMN lost_from_person_id INTEGER REFERENCES people(id) ON DELETE SET NULL;`,
 }
 
 func migrate(db *sql.DB) error {

@@ -104,6 +104,7 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/people", a.authed(a.createPerson))
 	mux.HandleFunc("PATCH /api/people/{id}", a.authed(a.updatePerson))
 	mux.HandleFunc("DELETE /api/people/{id}", a.authed(a.deletePerson))
+	mux.HandleFunc("POST /api/people/{id}/write-off", a.authed(a.writeOffLoan))
 
 	mux.HandleFunc("GET /api/transactions", a.authed(a.listTransactions))
 	mux.HandleFunc("POST /api/transactions", a.authed(a.createTransaction))

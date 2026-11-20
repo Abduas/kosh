@@ -1,15 +1,17 @@
 import { motion } from 'motion/react'
-import { BellRing, Check, HandCoins, Pencil, Phone, Plus, UserPlus, Users } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { BellRing, Check, HandCoins, Pencil, Phone, Plus, UserPlus, UserX, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { PersonSheet } from '../components/Forms'
+import { MoneyInput, PersonSheet } from '../components/Forms'
 import { Amount, BigAmount } from '../components/Money'
 import { TxList } from '../components/TxList'
-import { Avatar, Button, Card, EmptyState, IconButton, ScreenHeader, Segmented, Skeleton, cn } from '../components/ui'
-import type { Person } from '../lib/api'
+import { Sheet } from '../components/Sheet'
+import { Avatar, Button, Card, Chip, EmptyState, Field, IconButton, ScreenHeader, Segmented, Skeleton, TextInput, cn } from '../components/ui'
+import { api, errorMessage, type Person } from '../lib/api'
 import { money, relativeDays } from '../lib/format'
 import { haptic } from '../lib/look'
-import { useData, useTransactions } from '../lib/queries'
+import { invalidateMoney, useData, useTransactions } from '../lib/queries'
 import { navigate } from '../lib/router'
 import { openComposer } from '../lib/store'
 
@@ -146,6 +148,7 @@ export function PersonDetail({ id }: { id: number }) {
   const d = useData()
   const p = d.peopleById.get(id)
   const [editing, setEditing] = useState(false)
+  const [writingOff, setWritingOff] = useState(false)
   const tx = useTransactions({ person: id })
   const items = useMemo(() => tx.data?.pages.flatMap((pg) => pg.items) ?? [], [tx.data])
 
@@ -239,6 +242,11 @@ export function PersonDetail({ id }: { id: number }) {
             Send a reminder{d.user.prefs.upiId ? ' with your UPI ID' : ''}
           </Button>
         )}
+        {owesYou && (
+          <Button variant="ghost" className="col-span-2 text-ink-3" icon={<UserX className="size-[18px]" />} onClick={() => setWritingOff(true)}>
+            {p.name.split(' ')[0]} won't pay it back
+          </Button>
+        )}
       </div>
 
       <h2 className="mb-2.5 mt-8 px-1 text-[13px] font-semibold uppercase tracking-[0.06em] text-ink-3">History</h2>
@@ -255,6 +263,75 @@ export function PersonDetail({ id }: { id: number }) {
       )}
 
       <PersonSheet open={editing} onOpenChange={setEditing} person={p} />
+      <Sheet
+        open={writingOff}
+        onOpenChange={setWritingOff}
+        title="Count it as spent"
+        description={`What ${p.name.split(' ')[0]} won't pay back becomes an expense. Your account balances stay the same.`}
+      >
+        {writingOff && <WriteOffForm person={p} onDone={() => setWritingOff(false)} />}
+      </Sheet>
+    </div>
+  )
+}
+
+/**
+ * Writing off a loan: the lent money that won't come back turns into an
+ * expense on the day it was lent, from the account it left.
+ */
+function WriteOffForm({ person, onDone }: { person: Person; onDone: () => void }) {
+  const d = useData()
+  const [amount, setAmount] = useState(person.balance)
+  // null: the "Money not returned" category, made when first needed.
+  const [categoryId, setCategoryId] = useState<number | null>(null)
+  const [note, setNote] = useState('')
+  const categories = d.categories.filter((c) => c.kind === 'expense' && !c.archived)
+  const notReturned = categories.find((c) => c.name.toLowerCase() === 'money not returned')
+  const others = categories.filter((c) => c !== notReturned)
+  const first = person.name.split(' ')[0]
+  const save = useMutation({
+    mutationFn: () => api<{ person: Person }>('POST', `/api/people/${person.id}/write-off`, { amount, categoryId: categoryId ?? notReturned?.id ?? null, note }),
+    onSuccess: (r) => {
+      invalidateMoney()
+      haptic()
+      toast.success(r.person.balance === 0 ? `${money(amount)} counted as spent. All settled with ${first}.` : `${money(amount)} counted as spent. ${first} still owes ${money(r.person.balance)}.`)
+      onDone()
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  })
+  const picked = categoryId ?? notReturned?.id ?? null
+  return (
+    <div className="space-y-5">
+      <Field label="How much won't come back">
+        <MoneyInput value={amount} onChange={setAmount} />
+      </Field>
+      <div className="-mt-3 flex gap-2 px-1">
+        <button className="text-[13px] font-medium text-accent" onClick={() => setAmount(person.balance)}>
+          All of it ({money(person.balance)})
+        </button>
+      </div>
+      <div>
+        <p className="mb-1.5 px-1 text-[13px] font-medium text-ink-2">Category</p>
+        <div className="no-scrollbar -mx-6 flex gap-2 overflow-x-auto px-6">
+          <Chip active={picked === null || picked === notReturned?.id} onClick={() => setCategoryId(null)}>
+            <span>💸</span> Money not returned
+          </Chip>
+          {others.map((c) => (
+            <Chip key={c.id} active={picked === c.id} color={c.color} onClick={() => setCategoryId(c.id)}>
+              <span>{c.icon}</span> {c.name}
+            </Chip>
+          ))}
+        </div>
+      </div>
+      <Field label="Note">
+        <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Forgave it" maxLength={120} />
+      </Field>
+      <p className="px-1 text-[13px] text-ink-3">
+        The most recent loans to {first} become expenses on the days you lent them, so those months' spending goes up. Anything not counted stays as what {first} owes you.
+      </p>
+      <Button size="lg" className="w-full" loading={save.isPending} disabled={amount <= 0 || amount > person.balance} onClick={() => save.mutate()}>
+        Count {money(amount)} as spent
+      </Button>
     </div>
   )
 }

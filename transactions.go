@@ -363,8 +363,9 @@ func (a *api) updateTransaction(w http.ResponseWriter, r *http.Request, uid int6
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(r.Context(), `UPDATE transactions SET kind = ?, amount = ?, account_id = ?, to_account_id = ?, category_id = ?,
-		person_id = ?, note = ?, occurred_at = ?, source = ?, payee = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
-		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, id, uid); err != nil {
+		person_id = ?, note = ?, occurred_at = ?, source = ?, payee = ?,
+		lost_from_person_id = CASE WHEN ? = 'expense' THEN lost_from_person_id END, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND user_id = ?`,
+		t.Kind, t.Amount, t.AccountID, t.ToAccountID, t.CategoryID, t.PersonID, t.Note, t.OccurredAt, t.Source, t.Payee, t.Kind, id, uid); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -438,8 +439,9 @@ func (a *api) listTransactions(w http.ResponseWriter, r *http.Request, uid int64
 		args = append(args, v)
 	}
 	if v, err := strconv.ParseInt(q.Get("person"), 10, 64); err == nil {
-		where = append(where, "t.person_id = ?")
-		args = append(args, v)
+		// With the loans to them written off as expenses (writeoff.go).
+		where = append(where, "(t.person_id = ? OR t.lost_from_person_id = ?)")
+		args = append(args, v, v)
 	}
 	if v, err := strconv.ParseInt(q.Get("vehicle"), 10, 64); err == nil {
 		where = append(where, "EXISTS (SELECT 1 FROM vehicle_logs l WHERE l.transaction_id = t.id AND l.vehicle_id = ?)")
