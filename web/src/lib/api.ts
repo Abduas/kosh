@@ -19,7 +19,21 @@ export type Prefs = {
   captureAuto?: boolean
   /** The parts of Kosh in use. Missing means money only. */
   modules?: Module[]
+  /** Payment apps they use (ids from PAY_APPS), favourite first. */
+  payApps?: string[]
 }
+
+/** An AI agent connected to Kosh: a key they handed it, or an assistant signed in with OAuth. */
+export type AgentConn = {
+  id: number
+  name: string
+  kind: 'key' | 'oauth'
+  scope: 'read' | 'write'
+  lastUsedAt: string | null
+  createdAt: string
+}
+
+export type AgentKey = { connection: AgentConn; key: string; link: string; message: string; owner: string }
 
 export type Module = 'finance' | 'vehicles'
 

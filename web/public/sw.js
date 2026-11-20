@@ -4,7 +4,7 @@
 // - API calls always go to the network; the app keeps its own data cache.
 // - /auth/* (Google sign-in) redirects to other sites, so it's left alone too.
 // - Push messages are vehicle reminders; tapping one opens the screen it's about.
-const CACHE = 'kosh-v3'
+const CACHE = 'kosh-v4'
 // Papers kept for offline use (see src/lib/offline.ts); never cleared here.
 const PAPERS = 'kosh-papers'
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/icon-192.png']
@@ -26,7 +26,9 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   const url = new URL(req.url)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/_jobs/') || url.pathname === '/healthz') return
+  // Server pages (sign-in for AI assistants, agent links) aren't the app.
+  const server = ['/api/', '/auth/', '/_jobs/', '/oauth/', '/agent/', '/.well-known/', '/mcp']
+  if (server.some((p) => url.pathname.startsWith(p)) || url.pathname === '/healthz') return
 
   if (req.mode === 'navigate') {
     event.respondWith(

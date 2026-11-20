@@ -317,6 +317,49 @@ var migrations = []string{
 		sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 		PRIMARY KEY (user_id, key)
 	);`,
+
+	// AI agents. A connection is either a key you hand an agent yourself
+	// (Instinct on WhatsApp, OpenClaw…) or what an assistant like Grok,
+	// ChatGPT or Claude gets by signing in with OAuth. scope is 'read' or
+	// 'write'. Only hashes of keys and tokens are kept. An OAuth access token
+	// expires; its refresh token rotates on use.
+	//
+	// oauth_clients are the apps that registered (dynamic registration) or
+	// that Kosh looked up from their metadata URL. oauth_codes live minutes.
+	`CREATE TABLE agent_connections (
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('key', 'oauth')),
+		scope TEXT NOT NULL CHECK (scope IN ('read', 'write')),
+		client_id TEXT NOT NULL DEFAULT '',
+		key_hash TEXT UNIQUE,
+		access_hash TEXT UNIQUE,
+		access_expires_at TEXT,
+		refresh_hash TEXT UNIQUE,
+		last_used_at TEXT,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+	CREATE INDEX agent_connections_user ON agent_connections(user_id);
+
+	CREATE TABLE oauth_clients (
+		client_id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		redirect_uris TEXT NOT NULL,
+		metadata_url INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	);
+
+	CREATE TABLE oauth_codes (
+		code_hash TEXT PRIMARY KEY,
+		client_id TEXT NOT NULL,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		redirect_uri TEXT NOT NULL,
+		code_challenge TEXT NOT NULL,
+		scope TEXT NOT NULL,
+		resource TEXT NOT NULL DEFAULT '',
+		expires_at TEXT NOT NULL
+	);`,
 }
 
 func migrate(db *sql.DB) error {

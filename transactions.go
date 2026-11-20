@@ -69,8 +69,9 @@ type txInput struct {
 }
 
 // sources a client may set. "upi-scan" is a payment started from Kosh's QR
-// scanner; "sms" came from a bank message (auto-capture).
-var txSources = map[string]bool{"manual": true, "upi-scan": true, "sms": true}
+// scanner; "sms" came from a bank message (auto-capture); "agent" was added
+// by an AI agent (agent.go).
+var txSources = map[string]bool{"manual": true, "upi-scan": true, "sms": true, "agent": true}
 
 // apply merges the input into t. For fields that depend on kind (toAccountId,
 // categoryId, personId) an explicit null in the input clears them, so the

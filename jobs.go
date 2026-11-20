@@ -27,6 +27,7 @@ func cleanupSessions(ctx context.Context, db *sql.DB) (string, error) {
 		return "", err
 	}
 	n, _ := res.RowsAffected()
+	cleanupOAuth(ctx, db)
 	return fmt.Sprintf("deleted %d expired sessions", n), nil
 }
 

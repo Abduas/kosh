@@ -13,7 +13,7 @@ import { api, type AuthStatus } from './lib/api'
 import { setCurrency } from './lib/format'
 import { haptic, useLook } from './lib/look'
 import { clearLocalData, clearSignedInData, useBootstrap, useData, useGarage } from './lib/queries'
-import { linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
+import { clearParam, linkHandler, match, navigate, useBackToClose, useLocation } from './lib/router'
 import { closeScanner, composer, openComposer, openGarageSheet, openScanner, scanner } from './lib/store'
 import { currentDocs, hasFinance, hasVehicles, lastSpace, rememberSpace, spaceOfPath, type Space } from './lib/vehicles'
 import { launchScanEnabled, readPending } from './lib/upi'
@@ -31,6 +31,7 @@ import { CaptureSettings } from './screens/Capture'
 import { Review } from './screens/Review'
 import { ImportScreen } from './screens/Import'
 import { Due, Garage, Logs, Papers, VehicleDetail } from './screens/Garage'
+import { AgentsScreen } from './screens/Agents'
 
 export function App() {
   const status = useQuery({
@@ -39,6 +40,27 @@ export function App() {
     staleTime: Infinity,
     retry: 1,
   })
+  // An AI assistant sent them here to sign in (Kosh's OAuth page, oauth.go):
+  // remember where to go back to, and go once signed in.
+  useEffect(() => {
+    const after = new URLSearchParams(location.search).get('after')
+    if (after?.startsWith('/oauth/authorize?')) {
+      try {
+        sessionStorage.setItem('kosh:after', after)
+      } catch {}
+      clearParam('after')
+    }
+  }, [])
+  useEffect(() => {
+    if (!status.data?.signedIn) return
+    let after: string | null = null
+    try {
+      after = sessionStorage.getItem('kosh:after')
+      sessionStorage.removeItem('kosh:after')
+    } catch {}
+    if (after?.startsWith('/oauth/authorize?')) location.replace(after)
+  }, [status.data?.signedIn])
+
   // Wait until we know there's a session; offline, fall back to the cached copy.
   const boot = useBootstrap(status.data?.signedIn === true || status.isError)
 
@@ -255,6 +277,7 @@ function Shell() {
   else if (path === '/members') screen = <Members />
   else if (path === '/settings/capture') screen = <CaptureSettings />
   else if (path === '/settings/import') screen = <ImportScreen />
+  else if (path === '/settings/agents') screen = <AgentsScreen />
   else if (path === '/review') screen = <Review />
   else if (path === '/garage') screen = <Garage />
   else if ((params = match('/garage/:id', path))) screen = <VehicleDetail id={Number(params.id)} />

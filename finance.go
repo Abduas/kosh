@@ -230,6 +230,19 @@ var allowedPrefs = map[string]func(any) bool{
 	"upiAccountId": func(v any) bool { f, ok := v.(float64); return ok && f >= 0 && f == float64(int64(f)) },
 	// Auto-capture saves a bank message straight away when it knows the payee.
 	"captureAuto": func(v any) bool { _, ok := v.(bool); return ok },
+	// The payment apps you use (gpay, phonepe…), first is the favourite.
+	"payApps": func(v any) bool {
+		list, ok := v.([]any)
+		if !ok || len(list) > 16 {
+			return false
+		}
+		for _, x := range list {
+			if s, ok := x.(string); !ok || s == "" || len(s) > 24 {
+				return false
+			}
+		}
+		return true
+	},
 	// The parts of Kosh you use: "finance", "vehicles" or both. Missing
 	// means finance only, as before vehicles existed.
 	"modules": func(v any) bool {

@@ -262,6 +262,7 @@ func mergeUsers(ctx context.Context, tx *sql.Tx, src, dst int64) error {
 		`UPDATE vehicle_logs SET user_id = ? WHERE user_id = ?`,
 		`UPDATE vehicle_documents SET user_id = ? WHERE user_id = ?`,
 		`UPDATE service_rules SET user_id = ? WHERE user_id = ?`,
+		`UPDATE agent_connections SET user_id = ? WHERE user_id = ?`,
 	} {
 		if err := exec(q, dst, src); err != nil {
 			return err

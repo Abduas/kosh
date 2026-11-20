@@ -141,6 +141,25 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("DELETE /api/calendar", a.authed(a.resetCalendar))
 	mux.HandleFunc("GET /api/calendar/{token}", a.calendarFeed)
 
+	// AI agents: Settings → AI agents, the MCP server (Grok, ChatGPT,
+	// Claude) with Kosh's own OAuth sign-in, and the plain HTTP API for
+	// agents with their own computer (Instinct, OpenClaw).
+	mux.HandleFunc("GET /api/agents", a.authed(a.listAgents))
+	mux.HandleFunc("POST /api/agents", a.authed(a.createAgentKey))
+	mux.HandleFunc("PATCH /api/agents/{id}", a.authed(a.updateAgent))
+	mux.HandleFunc("DELETE /api/agents/{id}", a.authed(a.deleteAgent))
+	mux.HandleFunc("/mcp", a.mcp)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", a.protectedResource)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", a.protectedResource)
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", a.authServerMetadata)
+	mux.HandleFunc("GET /.well-known/openid-configuration", a.authServerMetadata)
+	mux.HandleFunc("/oauth/register", a.registerClient)
+	mux.HandleFunc("GET /oauth/authorize", a.authorize)
+	mux.HandleFunc("POST /oauth/authorize", a.authorize)
+	mux.HandleFunc("/oauth/token", a.token)
+	mux.HandleFunc("GET /agent/{key}", a.agentEntry)
+	mux.HandleFunc("/agent/{key}/{tool}", a.agentEntry)
+
 	mux.HandleFunc("GET /api/insights", a.authed(a.insights))
 	mux.HandleFunc("GET /api/insights/balance", a.authed(a.balanceHistory))
 

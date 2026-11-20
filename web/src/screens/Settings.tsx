@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Check, Download, Eraser, FileUp, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
+import { Bot, Check, Download, Eraser, FileUp, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Sheet } from '../components/Sheet'
@@ -7,6 +7,7 @@ import { Avatar, Button, Field, ListRow, ScreenHeader, SectionTitle, Segmented, 
 import { api, type AuthStatus, type Bootstrap, type MergeOffer, type Prefs, type User } from '../lib/api'
 import { ordinal } from '../lib/format'
 import { hasFinance, hasVehicles, lastSpace, rememberSpace } from '../lib/vehicles'
+import { PAY_APPS, adoptFavourite } from '../lib/payapps'
 import type { Module } from '../lib/api'
 import { accents } from '../lib/look'
 import { invalidateMoney, queryClient, useData, useUpdateMe } from '../lib/queries'
@@ -158,6 +159,17 @@ export function Settings() {
         </div>
       </div>
 
+      <SectionTitle title="AI agents" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <ListRow
+          onClick={() => navigate('/settings/agents')}
+          left={<RowIcon className="bg-accent/12 text-accent"><Bot className="size-[18px]" /></RowIcon>}
+          title="Connect an AI agent"
+          subtitle="Instinct on WhatsApp, Grok, ChatGPT, Claude…"
+          chevron
+        />
+      </div>
+
       {vehicles && (
         <div id="reminders" className="scroll-mt-4">
           <SectionTitle title="Vehicle reminders" />
@@ -256,6 +268,35 @@ export function Settings() {
 
       <SectionTitle title="Scan & pay" />
       <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        <div className="px-4 py-3">
+          <p className="text-[15px] font-medium">Apps you use</p>
+          <p className="mb-2.5 text-[12px] text-ink-3">The first is your favourite. Your AI agents know these too.</p>
+          <div className="flex flex-wrap gap-1.5">
+            {PAY_APPS.map((app) => {
+              const list = prefs.payApps ?? []
+              const on = list.includes(app.id)
+              return (
+                <button
+                  key={app.id}
+                  onClick={() => {
+                    const next = on ? list.filter((x) => x !== app.id) : [...list, app.id]
+                    adoptFavourite(next)
+                    if (next[0]) setUpiApp(preferredApp())
+                    setPref({ payApps: next })
+                  }}
+                  className={cn('press flex h-8 items-center gap-1.5 rounded-full pl-1 pr-3 text-[13px] font-semibold', on ? 'bg-ink text-bg' : 'bg-surface-2 text-ink-2')}
+                >
+                  <span className="grid size-6 place-items-center rounded-full text-[11px] font-bold text-white" style={{ background: app.color }}>
+                    {app.letter}
+                  </span>
+                  {app.name}
+                  {on && list[0] === app.id && <span className="text-[10px] font-bold uppercase text-accent">Fav</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="border-t border-line" />
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="text-[15px] font-medium">Pay from</p>

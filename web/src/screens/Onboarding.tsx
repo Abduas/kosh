@@ -8,9 +8,11 @@ import { api, errorMessage, type Module, type VehicleKind } from '../lib/api'
 import { invalidateMoney, queryClient, useData, useUpdateMe } from '../lib/queries'
 import { navigate } from '../lib/router'
 import { rememberSpace, vehicleKinds } from '../lib/vehicles'
+import { PAY_APPS, adoptFavourite } from '../lib/payapps'
+import { AGENTS, type AgentKind } from './Agents'
 
 type Pick = { name: string; color: string; kind: 'bank' | 'wallet' }
-type Step = 'modules' | 'banks' | 'balances' | 'vehicle'
+type Step = 'modules' | 'banks' | 'balances' | 'payapps' | 'vehicle' | 'agent'
 
 const vehicleColor: Record<VehicleKind, string> = { car: '#3B82F6', bike: '#EF4444', scooter: '#22C55E', other: '#64748B' }
 
@@ -26,10 +28,17 @@ export function Onboarding() {
   const [vName, setVName] = useState('')
   const [vReg, setVReg] = useState('')
   const [vOdo, setVOdo] = useState('')
+  const [payApps, setPayApps] = useState<string[]>([])
+  const [agent, setAgent] = useState<AgentKind | null>(null)
   const [busy, setBusy] = useState(false)
   const cash = d.accounts.find((a) => a.kind === 'cash')
 
-  const steps: Step[] = ['modules', ...(modules.includes('finance') ? (['banks', 'balances'] as Step[]) : []), ...(modules.includes('vehicles') ? (['vehicle'] as Step[]) : [])]
+  const steps: Step[] = [
+    'modules',
+    ...(modules.includes('finance') ? (['banks', 'balances', 'payapps'] as Step[]) : []),
+    ...(modules.includes('vehicles') ? (['vehicle'] as Step[]) : []),
+    'agent',
+  ]
   const at = steps.indexOf(step)
   const next = () => setStep(steps[at + 1])
   const back = () => setStep(steps[at - 1])
@@ -46,10 +55,12 @@ export function Onboarding() {
   const done = async () => {
     // Save the flag first, so the refresh below can't bring back an older copy without it.
     rememberSpace(modules.includes('finance') ? 'finance' : 'vehicles')
-    await updateMe.mutateAsync({ prefs: { onboarded: true, modules } })
+    adoptFavourite(payApps)
+    await updateMe.mutateAsync({ prefs: { onboarded: true, modules, ...(payApps.length ? { payApps } : {}) } })
     invalidateMoney()
     queryClient.invalidateQueries({ queryKey: ['garage'] })
-    if (!modules.includes('finance')) navigate('/garage', { replace: true })
+    if (agent) navigate(`/settings/agents?connect=${agent}`, { replace: true })
+    else if (!modules.includes('finance')) navigate('/garage', { replace: true })
   }
 
   const finish = async () => {
@@ -99,7 +110,7 @@ export function Onboarding() {
   const primary = (label: ReactNode) =>
     isLast ? (
       <Button size="lg" className="flex-1" loading={busy} onClick={finish}>
-        Start using Kosh
+        {agent ? `Start, then connect ${AGENTS.find((a) => a.id === agent)?.name}` : 'Start using Kosh'}
       </Button>
     ) : (
       <Button size="lg" className="flex-1" onClick={next}>
@@ -187,6 +198,69 @@ export function Onboarding() {
                       <MoneyInput value={balances[p.name] ?? 0} onChange={(v) => setBalances((b) => ({ ...b, [p.name]: v }))} />
                     </div>
                   </div>
+                ))}
+              </div>
+              <div className="mt-auto flex gap-2 pt-8">
+                <Button variant="secondary" size="lg" onClick={back}>
+                  Back
+                </Button>
+                {primary('Continue')}
+              </div>
+            </>
+          )}
+
+          {step === 'payapps' && (
+            <>
+              <h1 className="mt-10 text-[32px] font-bold leading-tight tracking-[-0.03em]">How do you pay?</h1>
+              <p className="mt-2 text-[15px] text-ink-2">Pick the apps you use. Tap your favourite first: Scan & pay opens it with the amount filled in.</p>
+              <div className="mt-8 grid grid-cols-3 gap-2">
+                {PAY_APPS.map((app) => {
+                  const at = payApps.indexOf(app.id)
+                  return (
+                    <button
+                      key={app.id}
+                      onClick={() => setPayApps((l) => (l.includes(app.id) ? l.filter((x) => x !== app.id) : [...l, app.id]))}
+                      className={cn('press relative flex flex-col items-center gap-1.5 rounded-2xl px-1 py-3 text-center text-[12px] font-semibold leading-tight', at >= 0 ? 'bg-ink text-bg' : 'bg-surface text-ink-2 shadow-card')}
+                    >
+                      <span className="grid size-10 place-items-center rounded-full text-[16px] font-bold text-white" style={{ background: app.color }}>
+                        {app.letter}
+                      </span>
+                      {app.name}
+                      {at === 0 && <span className="absolute right-1.5 top-1.5 rounded-full bg-accent px-1.5 text-[9px] font-bold uppercase text-white">Fav</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-4 rounded-2xl bg-surface px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+                Whichever you use, Kosh can also record payments by itself from your bank's SMS. Set it up later in Settings → Auto-capture.
+              </p>
+              <div className="mt-auto flex gap-2 pt-8">
+                <Button variant="secondary" size="lg" onClick={back}>
+                  Back
+                </Button>
+                {primary(payApps.length ? 'Continue' : 'Skip')}
+              </div>
+            </>
+          )}
+
+          {step === 'agent' && (
+            <>
+              <h1 className="mt-10 text-[32px] font-bold leading-tight tracking-[-0.03em]">Use an AI agent?</h1>
+              <p className="mt-2 text-[15px] text-ink-2">Text “spent ₹200 on lunch” to your agent and it lands here. Optional; you can do this later in Settings.</p>
+              <div className="mt-8 space-y-2">
+                {AGENTS.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => setAgent(agent === a.id ? null : a.id)}
+                    className={cn('press flex w-full items-center gap-3 rounded-[20px] p-3 text-left', agent === a.id ? 'bg-ink text-bg' : 'bg-surface shadow-card')}
+                  >
+                    <Glyph icon={a.icon} color={a.color} size={40} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[16px] font-semibold tracking-tight">{a.name}</span>
+                      <span className={cn('block text-[12px]', agent === a.id ? 'opacity-70' : 'text-ink-3')}>{a.blurb}</span>
+                    </span>
+                    {agent === a.id && <Check className="size-5 text-accent" strokeWidth={3} />}
+                  </button>
                 ))}
               </div>
               <div className="mt-auto flex gap-2 pt-8">
