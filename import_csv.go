@@ -15,10 +15,12 @@ import (
 )
 
 // Reading another app's CSV export. Every money app writes its own columns,
-// so instead of a parser per app, columns are recognised by their headers
-// (date, amount, type, category, note, account…), the way a person would
-// read the file. That covers Dime, Money Manager, Wallet, Spendee, Monefy,
-// Money Lover, most bank statements and Kosh's own export.
+// so columns are recognised by their headers (date, amount, type, category,
+// note, account…), the way a person would read the file. On top of that,
+// apps whose files say things in their own way (Cashew's income flag,
+// transfers written as two rows, 1Money's swapped columns, YNAB's transfer
+// payees) are recognised by their headers and read their way. Excel files
+// and zips are turned into CSV in the browser first (web/src/lib/importfile.ts).
 
 // importRow is one transaction read from a file, before it's matched to the
 // user's accounts and categories.
@@ -43,7 +45,18 @@ type parsedImport struct {
 	Format   string // the app the file looks like it came from, or ""
 	Rows     []importRow
 	Problems []importProblem
+	// Opening balances the file gives (YNAB's "Starting Balance", Money Pro's
+	// and Bluecoins' opening rows), by account name. They become the opening
+	// balance of accounts the import creates.
+	Openings map[string]int64
 }
+
+// A transfer some apps write as two rows: money leaving one account and
+// arriving in another. They're paired up after reading.
+const (
+	legOut = "transfer-leg-out"
+	legIn  = "transfer-leg-in"
+)
 
 const maxImportRows = 50_000
 
@@ -58,12 +71,12 @@ var importRoles = []struct {
 	{"time", []string{"time", "transaction time", "txn time"}},
 	{"type", []string{"type", "transaction type", "txn type", "kind", "income expense", "expense income", "dr cr", "cr dr", "debit credit", "credit debit", "direction", "entry type", "category type"}},
 	{"amount", []string{"amount", "amt", "transaction amount", "txn amount", "amount inr", "amount rs", "amount in rs", "amount in inr", "inr", "value", "sum", "price", "cost", "total"}},
-	{"debit", []string{"debit", "debits", "debit amount", "debit amt", "withdrawal", "withdrawals", "withdrawal amount", "withdrawal amt", "money out", "paid out", "outflow", "spent", "dr", "dr amount", "expense", "expenses"}},
-	{"credit", []string{"credit", "credits", "credit amount", "credit amt", "deposit", "deposits", "deposit amount", "deposit amt", "money in", "paid in", "inflow", "received", "cr", "cr amount", "income"}},
-	{"category", []string{"category", "category name", "categories", "main category"}},
-	{"note", []string{"note", "notes", "description", "memo", "title", "remarks", "remark", "narration", "details", "particulars", "transaction details", "payee", "merchant", "place", "comment", "comments", "name"}},
+	{"debit", []string{"expense amount", "debit", "debits", "debit amount", "debit amt", "withdrawal", "withdrawals", "withdrawal amount", "withdrawal amt", "money out", "paid out", "outflow", "spent", "dr", "dr amount", "expense", "expenses"}},
+	{"credit", []string{"income amount", "credit", "credits", "credit amount", "credit amt", "deposit", "deposits", "deposit amount", "deposit amt", "money in", "paid in", "inflow", "received", "cr", "cr amount", "income"}},
+	{"category", []string{"category", "category name", "categories", "main category", "envelope"}},
+	{"note", []string{"note", "notes", "description", "memo", "title", "remarks", "remark", "narration", "details", "particulars", "transaction details", "payee", "item or payee", "merchant", "place", "comment", "comments", "name", "agent"}},
 	{"account", []string{"account", "accounts", "account name", "wallet", "wallet name", "from account", "source account"}},
-	{"to", []string{"to account", "to wallet", "transfer to", "destination account"}},
+	{"to", []string{"to account", "account to", "to wallet", "transfer to", "destination account"}},
 	{"person", []string{"person", "contact", "friend"}},
 }
 
@@ -84,6 +97,11 @@ func headerKey(s string) string {
 	return b.String()
 }
 
+// Bluecoins numbers its headers: "(1)Type", "(2)Date".
+var numberedHeader = regexp.MustCompile(`^\s*\(\d+\)\s*`)
+
+func colKey(h string) string { return headerKey(numberedHeader.ReplaceAllString(h, "")) }
+
 // columns maps roles to column indexes. note may have several (a note and a
 // description), joined in order.
 type columns struct {
@@ -96,7 +114,7 @@ func (c columns) has(role string) bool { _, ok := c.idx[role]; return ok }
 func findColumns(header []string) columns {
 	c := columns{idx: map[string]int{}}
 	for i, h := range header {
-		key := headerKey(h)
+		key := colKey(h)
 		for _, r := range importRoles {
 			hit := false
 			for _, name := range r.headers {
@@ -132,13 +150,15 @@ func (c columns) usable() bool {
 func detectFormat(header []string, c columns) string {
 	keys := map[string]bool{}
 	for _, h := range header {
-		keys[headerKey(h)] = true
+		keys[colKey(h)] = true
 	}
 	switch {
 	case keys["to account"] && keys["person"]:
 		return "Kosh"
 	case len(header) == 5 && keys["date"] && keys["note"] && keys["amount"] && keys["category"] && keys["type"]:
 		return "Dime"
+	case keys["subcategory name"] && keys["income"] && keys["category name"]:
+		return "Cashew"
 	case keys["income expense"] && keys["period"]:
 		return "Money Manager"
 	case keys["ref currency amount"] || keys["payment type"]:
@@ -147,6 +167,22 @@ func detectFormat(header []string, c columns) string {
 		return "Spendee"
 	case keys["converted amount"]:
 		return "Monefy"
+	case keys["outflow"] && keys["inflow"] && (keys["cleared"] || keys["category group"]):
+		return "YNAB"
+	case keys["to account to category"]:
+		return "1Money"
+	case keys["item or payee"]:
+		return "Bluecoins"
+	case keys["amount received"] && keys["account to"]:
+		return "Money Pro"
+	case keys["transfer amount"] && keys["due date"]:
+		return "Ivy Wallet"
+	case keys["envelope"]:
+		return "Goodbudget"
+	case keys["expense amount"] && keys["income amount"]:
+		return "Toshl"
+	case keys["wallet"] && keys["category"] && keys["note"]:
+		return "Money Lover"
 	case (c.has("debit") || c.has("credit")) && (keys["balance"] || keys["closing balance"]):
 		return "a bank statement"
 	}
@@ -211,6 +247,22 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 		}
 	}
 	out.Format = detectFormat(header, cols)
+	out.Openings = map[string]int64{}
+	byKey := map[string]int{}
+	for i, h := range header {
+		if _, ok := byKey[colKey(h)]; !ok {
+			byKey[colKey(h)] = i
+		}
+	}
+	switch out.Format {
+	case "Cashew":
+		// Its type column is for upcoming and subscription entries; whether
+		// money came in is the income column.
+		delete(cols.idx, "type")
+	case "1Money":
+		// FROM ACCOUNT is the category on income; read below.
+		delete(cols.idx, "account")
+	}
 
 	var records [][]string
 	var lines []int
@@ -247,6 +299,12 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 		}
 		return ""
 	}
+	raw := func(rec []string, key string) string {
+		if i, ok := byKey[key]; ok && i < len(rec) {
+			return strings.TrimSpace(rec[i])
+		}
+		return ""
+	}
 
 	// Whether 03/04 means 3 April or March 4 is decided for the whole file.
 	var dates []string
@@ -267,36 +325,38 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 		}
 	}
 
+	var legs []importRow
 	for n, rec := range records {
 		ln := lines[n]
 		at, err := parseWhen(cell(rec, "date"), cell(rec, "time"), dayFirst, loc)
 		if err != nil {
-			out.Problems = append(out.Problems, importProblem{ln, "Couldn't read the date"})
+			reason := "Couldn't read the date"
+			if cell(rec, "date") == "" && raw(rec, "due date") != "" {
+				reason = "Planned for later, not yet paid"
+			}
+			out.Problems = append(out.Problems, importProblem{ln, reason})
 			continue
 		}
 		row := importRow{Line: ln, At: at}
 
-		typeText := cell(rec, "type")
-		row.Kind = classifyType(typeText)
-		if row.Kind == "transfer-in" {
-			out.Problems = append(out.Problems, importProblem{ln, "Incoming side of a transfer (the outgoing side is imported)"})
-			continue
-		}
+		kind := classifyType(cell(rec, "type"))
+		// Money going out: a minus, a Dr, or the debit column.
+		neg := false
 		if cols.has("amount") {
-			amt, neg, hint, ok := parseAmount(cell(rec, "amount"))
+			amt, minus, hint, ok := parseAmount(cell(rec, "amount"))
 			if !ok {
 				out.Problems = append(out.Problems, importProblem{ln, "No amount"})
 				continue
 			}
-			row.Amount = amt
-			if row.Kind == "" {
-				row.Kind = hint
+			row.Amount, neg = amt, minus || hint == "expense"
+			if kind == "" {
+				kind = hint
 			}
-			if row.Kind == "" {
+			if kind == "" {
 				if neg || !signed {
-					row.Kind = "expense"
+					kind = "expense"
 				} else {
-					row.Kind = "income"
+					kind = "income"
 				}
 			}
 		} else {
@@ -304,17 +364,112 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 			credit, _, _, cok := parseAmount(cell(rec, "credit"))
 			switch {
 			case dok && debit > 0:
-				row.Amount = debit
-				if row.Kind == "" {
-					row.Kind = "expense"
+				row.Amount, neg = debit, true
+				if kind == "" {
+					kind = "expense"
 				}
 			case cok && credit > 0:
 				row.Amount = credit
-				if row.Kind == "" {
-					row.Kind = "income"
+				if kind == "" {
+					kind = "income"
 				}
 			}
 		}
+		row.Account = truncateRunes(cell(rec, "account"), 40)
+		row.ToAccount = truncateRunes(cell(rec, "to"), 40)
+		category := truncateRunes(cell(rec, "category"), 40)
+
+		// Each app's own way of saying things.
+		switch out.Format {
+		case "Cashew":
+			if strings.EqualFold(raw(rec, "income"), "true") {
+				kind = "income"
+			} else {
+				kind = "expense"
+			}
+		case "Wallet":
+			if strings.EqualFold(raw(rec, "transfer"), "true") {
+				kind = "transfer"
+			}
+		case "Money Manager":
+			// A transfer's category is the account it went to.
+			if kind == "transfer" && row.ToAccount == "" {
+				row.ToAccount, category = category, ""
+			}
+		case "1Money":
+			from := truncateRunes(raw(rec, "from account"), 40)
+			to := truncateRunes(raw(rec, "to account to category"), 40)
+			switch kind {
+			case "income":
+				row.Account, category = to, from
+			case "transfer":
+				row.Account, row.ToAccount = from, to
+			default:
+				row.Account, category = from, to
+			}
+		case "Money Pro":
+			// An opening balance row has its amount in the balance column.
+			if kind == "opening" {
+				if amt, minus, _, ok := parseAmount(raw(rec, "balance")); ok {
+					row.Amount, neg = amt, minus
+				}
+			}
+		case "YNAB":
+			payee := raw(rec, "payee")
+			switch {
+			case strings.EqualFold(payee, "Starting Balance"):
+				kind = "opening"
+			case strings.HasPrefix(strings.ToLower(payee), "transfer :"):
+				if neg {
+					kind, row.ToAccount = "transfer", truncateRunes(strings.TrimSpace(payee[len("transfer :"):]), 40)
+				} else {
+					kind = "transfer-in"
+				}
+			}
+			if strings.HasPrefix(category, "Inflow:") || strings.HasPrefix(category, "Ready to Assign") {
+				category = ""
+			}
+		}
+		// Apps without a type column that name transfers by category
+		// (Money Lover's "Outgoing Transfer").
+		if !cols.has("type") && out.Format != "Cashew" {
+			switch headerKey(category) {
+			case "outgoing transfer", "transfer out":
+				kind = legOut
+			case "incoming transfer", "transfer in":
+				kind = legIn
+			}
+		}
+		// A transfer row that doesn't say where the money went is one side of
+		// a pair: its sign says which.
+		if !cols.has("to") && row.ToAccount == "" && out.Format != "YNAB" {
+			switch kind {
+			case "transfer":
+				if neg {
+					kind = legOut
+				} else {
+					kind = legIn
+				}
+			case "transfer-in":
+				kind = legIn
+			}
+		}
+
+		if kind == "transfer-in" {
+			out.Problems = append(out.Problems, importProblem{ln, "Incoming side of a transfer (the outgoing side is imported)"})
+			continue
+		}
+		if kind == "opening" {
+			if row.Account != "" && row.Amount <= maxAmount {
+				if neg {
+					out.Openings[row.Account] -= row.Amount
+				} else {
+					out.Openings[row.Account] += row.Amount
+				}
+			}
+			continue
+		}
+		row.Kind = kind
 		if row.Amount <= 0 {
 			out.Problems = append(out.Problems, importProblem{ln, "Amount is zero"})
 			continue
@@ -334,14 +489,15 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 			}
 		}
 		row.Note = truncateRunes(strings.Join(notes, " · "), 280)
-		row.Account = truncateRunes(cell(rec, "account"), 40)
-		row.ToAccount = truncateRunes(cell(rec, "to"), 40)
 		row.Person = truncateRunes(cell(rec, "person"), 60)
 		if row.Kind == "expense" || row.Kind == "income" {
-			row.Category = truncateRunes(cell(rec, "category"), 40)
+			row.Category = category
 		}
 
 		switch {
+		case row.Kind == legOut || row.Kind == legIn:
+			legs = append(legs, row)
+			continue
 		case row.Kind == "transfer" && (row.ToAccount == "" || strings.EqualFold(row.ToAccount, row.Account)):
 			out.Problems = append(out.Problems, importProblem{ln, "Transfer without the account it went to"})
 			continue
@@ -351,8 +507,13 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 		}
 		out.Rows = append(out.Rows, row)
 	}
+	rows, problems := pairTransfers(legs)
+	out.Rows = append(out.Rows, rows...)
+	out.Problems = append(out.Problems, problems...)
+	sort.SliceStable(out.Problems, func(i, j int) bool { return out.Problems[i].Line < out.Problems[j].Line })
 
 	// Oldest first, so transactions on the same day keep the file's order.
+	sort.SliceStable(out.Rows, func(i, j int) bool { return out.Rows[i].Line < out.Rows[j].Line })
 	if len(out.Rows) > 1 && out.Rows[0].At > out.Rows[len(out.Rows)-1].At {
 		for i, j := 0, len(out.Rows)-1; i < j; i, j = i+1, j-1 {
 			out.Rows[i], out.Rows[j] = out.Rows[j], out.Rows[i]
@@ -360,6 +521,49 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 	}
 	sort.SliceStable(out.Rows, func(i, j int) bool { return out.Rows[i].At < out.Rows[j].At })
 	return out, nil
+}
+
+// pairTransfers joins the two rows of each transfer: an outgoing one and an
+// incoming one for the same amount, from another account, within a few
+// minutes. A side without its pair can't be imported as a transfer.
+func pairTransfers(legs []importRow) ([]importRow, []importProblem) {
+	var rows []importRow
+	var problems []importProblem
+	ins := map[int64][]int{}
+	for i, l := range legs {
+		if l.Kind == legIn {
+			ins[l.Amount] = append(ins[l.Amount], i)
+		}
+	}
+	used := make([]bool, len(legs))
+	when := func(s string) time.Time { t, _ := time.Parse(localTimeLayout, s); return t }
+	for i, l := range legs {
+		if l.Kind != legOut {
+			continue
+		}
+		for _, j := range ins[l.Amount] {
+			in := legs[j]
+			if used[j] || in.Account == "" || strings.EqualFold(in.Account, l.Account) || absDuration(when(in.At).Sub(when(l.At))) > 5*time.Minute {
+				continue
+			}
+			used[i], used[j] = true, true
+			t := l
+			t.Kind, t.ToAccount, t.Category = "transfer", in.Account, ""
+			if t.Note == "" {
+				t.Note = in.Note
+			}
+			if t.Account != "" {
+				rows = append(rows, t)
+			}
+			break
+		}
+	}
+	for i, l := range legs {
+		if !used[i] {
+			problems = append(problems, importProblem{l.Line, "One side of a transfer, without the other side in this file"})
+		}
+	}
+	return rows, problems
 }
 
 func containsFold(list []string, s string) bool {
@@ -391,6 +595,15 @@ func classifyType(v string) string {
 		return "transfer"
 	case "transfer in":
 		return "transfer-in"
+	case "opening balance", "starting balance", "initial balance", "new account":
+		return "opening"
+	// Bluecoins can write just the letter.
+	case "e":
+		return "expense"
+	case "i":
+		return "income"
+	case "t":
+		return "transfer"
 	case "":
 		switch raw {
 		case "-":

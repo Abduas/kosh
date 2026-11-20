@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { ChevronDown, FileUp, RotateCcw } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileUp, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button, Glyph, ScreenHeader, SectionTitle, Toggle, cn } from '../components/ui'
@@ -7,9 +7,9 @@ import { api, errorMessage, type ImportPreview, type ImportResult } from '../lib
 import { suggestEmoji } from '../lib/emoji'
 import { money, shortDate } from '../lib/format'
 import { invalidateMoney, useData } from '../lib/queries'
-import { navigate } from '../lib/router'
-
-const APPS = 'Dime, Money Manager, Wallet, Spendee, Monefy, Money Lover, your bank’s statement, or Kosh'
+import { IMPORT_ACCEPT, IMPORT_APPS, OTHER_SOURCES, findImportApp, type ImportApp } from '../lib/importapps'
+import { readImportFile } from '../lib/importfile'
+import { navigate, useLocation } from '../lib/router'
 
 const timezone = () => {
   try {
@@ -19,9 +19,11 @@ const timezone = () => {
   }
 }
 
-/** Bring your history over from another app's CSV export. */
+/** Bring your history over from another app: pick the app, follow its steps, choose the file. */
 export function ImportScreen() {
   const d = useData()
+  const { search } = useLocation()
+  const app = findImportApp(search.get('from'))
   const input = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<{ name: string; csv: string } | null>(null)
   const [preview, setPreview] = useState<ImportPreview | null>(null)
@@ -68,17 +70,24 @@ export function ImportScreen() {
     },
   })
 
+  const [opening, setOpening] = useState(false)
   const pick = async (f: File | undefined) => {
     if (!f) return
-    if (f.size > 10 * 1024 * 1024) {
-      toast.error('That file is over 10 MB. Export a shorter period and try again.')
-      return
+    setOpening(true)
+    setFile({ name: f.name, csv: '' })
+    try {
+      const next = { name: f.name, csv: await readImportFile(f) }
+      setFile(next)
+      setPreview(null)
+      setIncludeSimilar(false)
+      read.mutate(next)
+    } catch (e) {
+      setFile(null)
+      toast.error(e instanceof Error ? e.message : 'Couldn’t open that file.')
+    } finally {
+      setOpening(false)
+      if (input.current) input.current.value = ''
     }
-    const next = { name: f.name, csv: await f.text() }
-    setFile(next)
-    setPreview(null)
-    setIncludeSimilar(false)
-    read.mutate(next)
   }
 
   const reset = () => {
@@ -96,37 +105,51 @@ export function ImportScreen() {
     <input
       ref={input}
       type="file"
-      accept=".csv,.tsv,.txt,text/csv,text/plain,text/tab-separated-values"
+      accept={IMPORT_ACCEPT}
       className="hidden"
       onChange={(e) => pick(e.target.files?.[0])}
     />
   )
 
-  if (!preview) {
+  if (!preview && !app) return <ImportPicker />
+
+  if (!preview && app) {
+    const busy = opening || read.isPending
     return (
       <div>
-        <ScreenHeader title="Import" back="/settings" />
+        <ScreenHeader title={`From ${app.name}`} back="/settings/import" />
         {fileInput}
-        <div className="rounded-[24px] bg-surface p-6 text-center shadow-card">
-          <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-accent/12 text-accent">
-            <FileUp className="size-7" />
-          </span>
-          <h2 className="mt-4 text-[20px] font-bold tracking-tight">Bring your history</h2>
-          <p className="mx-auto mt-1.5 max-w-[320px] text-[14px] text-ink-2">Pick a CSV export from {APPS}. You’ll see what Kosh found before anything is saved.</p>
-          <Button size="lg" className="mt-5 w-full" loading={read.isPending} onClick={() => input.current?.click()}>
-            {read.isPending ? `Reading ${file?.name ?? ''}` : 'Choose a CSV file'}
+        <div className="rounded-[24px] bg-surface p-5 shadow-card">
+          <div className="flex items-center gap-3">
+            <AppMark app={app} size={48} />
+            <div className="min-w-0">
+              <p className="text-[18px] font-bold tracking-tight">Get your file</p>
+              <p className="text-[13px] text-ink-3">Takes a minute in {app.id === 'bank' || app.id === 'other' ? 'the app' : app.name}</p>
+            </div>
+          </div>
+          <ol className="mt-4 space-y-3">
+            {app.steps.map((step, i) => (
+              <li key={i} className="flex gap-3 text-[15px] leading-snug">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent/12 text-[13px] font-bold text-accent">{i + 1}</span>
+                <span className="pt-0.5">{step}</span>
+              </li>
+            ))}
+          </ol>
+          {app.note && <p className="mt-4 rounded-2xl bg-surface-2 px-3.5 py-2.5 text-[13px] text-ink-2">{app.note}</p>}
+          <Button size="lg" className="mt-5 w-full" loading={busy} onClick={() => input.current?.click()}>
+            <FileUp className="size-5" /> {busy ? `Reading ${file?.name ?? 'the file'}` : 'Choose the file'}
           </Button>
+          <p className="mt-3 text-center text-[12px] text-ink-3">CSV, Excel or zip. If a menu has moved, look for Export or Backup in the app’s settings.</p>
         </div>
 
-        <SectionTitle title="Getting the file" />
-        <div className="space-y-3 rounded-[22px] bg-surface p-4 text-[14px] text-ink-2 shadow-card">
-          <p>In your old app, look for <b className="text-ink">Export</b> or <b className="text-ink">Backup</b> in its settings and choose <b className="text-ink">CSV</b>. Save the file to Files (or Downloads), then choose it here.</p>
-          <p>Bank statement? Download it from net banking as CSV or Excel, and save Excel files as CSV first.</p>
-          <p>Importing the same file twice is safe: transactions already imported are skipped.</p>
+        <div className="mt-3 flex items-start gap-3 rounded-[22px] bg-surface px-4 py-3 text-[13px] text-ink-2 shadow-card">
+          <ShieldCheck className="mt-0.5 size-5 shrink-0 text-pos" />
+          <p>You’ll see everything Kosh found before anything is saved. Importing the same file twice is safe: what’s already here is skipped.</p>
         </div>
       </div>
     )
   }
+  if (!preview) return null
 
   return (
     <div>
@@ -136,9 +159,9 @@ export function ImportScreen() {
       <div className="rounded-[24px] bg-surface p-5 shadow-card">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-ink-3">{preview.format ? `From ${preview.format}` : file?.name}</p>
+            <p className="text-[13px] font-medium text-ink-3">{preview.format ? `From ${preview.format}` : app && app.id !== 'other' && app.id !== 'bank' ? `From ${app.name}` : file?.name}</p>
             <p className="mt-0.5 text-[28px] font-bold leading-tight tracking-[-0.03em]">
-              {preview.count.toLocaleString()} <span className="text-[17px] font-semibold text-ink-2">transactions</span>
+              {preview.count.toLocaleString()} <span className="text-[17px] font-semibold text-ink-2">{preview.count === 1 ? 'transaction' : 'transactions'}</span>
             </p>
             <p className="text-[14px] text-ink-2">
               {shortDate(preview.from.slice(0, 10))} – {shortDate(preview.to.slice(0, 10))}
@@ -182,7 +205,7 @@ export function ImportScreen() {
             {preview.accounts.map((a, i) => {
               const target = accounts.find((x) => x.id === accountMap[a.name])
               return (
-                <Row key={a.name} border={i > 0 || preview.needsAccount} left={<Glyph icon={target?.icon ?? '🏦'} color={target?.color ?? '#94A3B8'} size={36} />} title={a.name} subtitle={`${a.count.toLocaleString()} transactions`}>
+                <Row key={a.name} border={i > 0 || preview.needsAccount} left={<Glyph icon={target?.icon ?? '🏦'} color={target?.color ?? '#94A3B8'} size={36} />} title={a.name} subtitle={a.count ? `${a.count.toLocaleString()} transaction${a.count === 1 ? '' : 's'}` : 'Opening balance'}>
                   <Select value={accountMap[a.name] ?? 0} onChange={(v) => setAccountMap((m) => ({ ...m, [a.name]: v }))} label={`Account for ${a.name}`}>
                     <option value={0}>New account</option>
                     {accounts.map((x) => (
@@ -334,5 +357,51 @@ function Details({ label, children }: { label: string; children: ReactNode }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** Which app you're coming from. */
+function ImportPicker() {
+  const open = (a: ImportApp) => navigate(`/settings/import?from=${a.id}`)
+  return (
+    <div>
+      <ScreenHeader title="Import" subtitle="Bring your history from the app you used before." back="/settings" />
+      <div className="grid grid-cols-3 gap-2">
+        {IMPORT_APPS.map((a) => (
+          <button key={a.id} onClick={() => open(a)} className="press flex flex-col items-center gap-1.5 rounded-2xl bg-surface px-1 pb-2.5 pt-3 text-center shadow-card">
+            <AppMark app={a} size={40} />
+            <span className="text-[13px] font-semibold leading-tight">{a.name}</span>
+            <span className="line-clamp-1 text-[11px] text-ink-3">{a.where}</span>
+          </button>
+        ))}
+      </div>
+      <SectionTitle title="Or" />
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
+        {OTHER_SOURCES.map((a, i) => (
+          <button key={a.id} onClick={() => open(a)} className={cn('press flex w-full items-center gap-3 px-4 py-3 text-left', i > 0 && 'border-t border-line')}>
+            <AppMark app={a} size={36} />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium">{a.name}</span>
+              <span className="block text-[12px] text-ink-3">{a.where}</span>
+            </span>
+            <ChevronRight className="size-5 text-ink-3" />
+          </button>
+        ))}
+      </div>
+      <p className="mt-4 px-1 text-[13px] text-ink-3">Nothing is saved until you’ve seen what Kosh found. Your old app isn’t changed.</p>
+    </div>
+  )
+}
+
+export function AppMark({ app, size }: { app: ImportApp; size: number }) {
+  const emoji = /\p{Extended_Pictographic}/u.test(app.letter)
+  return (
+    <span
+      className="grid shrink-0 place-items-center rounded-full font-bold text-white"
+      style={{ width: size, height: size, background: emoji ? `${app.color}22` : app.color, fontSize: size * (emoji ? 0.5 : 0.42) }}
+      aria-hidden
+    >
+      {app.letter}
+    </span>
   )
 }

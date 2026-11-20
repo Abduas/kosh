@@ -10,9 +10,11 @@ import { navigate } from '../lib/router'
 import { rememberSpace, vehicleKinds } from '../lib/vehicles'
 import { PAY_APPS, adoptFavourite } from '../lib/payapps'
 import { AGENTS, type AgentKind } from './Agents'
+import { IMPORT_APPS, OTHER_SOURCES, findImportApp } from '../lib/importapps'
+import { AppMark } from './Import'
 
 type Pick = { name: string; color: string; kind: 'bank' | 'wallet' }
-type Step = 'modules' | 'banks' | 'balances' | 'payapps' | 'vehicle' | 'agent'
+type Step = 'modules' | 'switch' | 'banks' | 'balances' | 'payapps' | 'vehicle' | 'agent'
 
 const vehicleColor: Record<VehicleKind, string> = { car: '#3B82F6', bike: '#EF4444', scooter: '#22C55E', other: '#64748B' }
 
@@ -30,12 +32,15 @@ export function Onboarding() {
   const [vOdo, setVOdo] = useState('')
   const [payApps, setPayApps] = useState<string[]>([])
   const [agent, setAgent] = useState<AgentKind | null>(null)
+  // The app they're coming from; its file brings the accounts too.
+  const [fromApp, setFromApp] = useState<string | null>(null)
+  const from = findImportApp(fromApp)
   const [busy, setBusy] = useState(false)
   const cash = d.accounts.find((a) => a.kind === 'cash')
 
   const steps: Step[] = [
     'modules',
-    ...(modules.includes('finance') ? (['banks', 'balances', 'payapps'] as Step[]) : []),
+    ...(modules.includes('finance') ? (['switch', ...(from?.hasAccounts ? [] : ['banks', 'balances']), 'payapps'] as Step[]) : []),
     ...(modules.includes('vehicles') ? (['vehicle'] as Step[]) : []),
     'agent',
   ]
@@ -59,7 +64,8 @@ export function Onboarding() {
     await updateMe.mutateAsync({ prefs: { onboarded: true, modules, ...(payApps.length ? { payApps } : {}) } })
     invalidateMoney()
     queryClient.invalidateQueries({ queryKey: ['garage'] })
-    if (agent) navigate(`/settings/agents?connect=${agent}`, { replace: true })
+    if (from && modules.includes('finance')) navigate(`/settings/import?from=${from.id}`, { replace: true })
+    else if (agent) navigate(`/settings/agents?connect=${agent}`, { replace: true })
     else if (!modules.includes('finance')) navigate('/garage', { replace: true })
   }
 
@@ -101,16 +107,10 @@ export function Onboarding() {
     if (!modules.includes('finance')) navigate('/garage', { replace: true })
   }
 
-  // Bring history from another app first; accounts can be added after.
-  const importFirst = () => {
-    navigate('/settings/import', { replace: true })
-    updateMe.mutate({ prefs: { onboarded: true, modules } })
-  }
-
   const primary = (label: ReactNode) =>
     isLast ? (
       <Button size="lg" className="flex-1" loading={busy} onClick={finish}>
-        {agent ? `Start, then connect ${AGENTS.find((a) => a.id === agent)?.name}` : 'Start using Kosh'}
+        {from && modules.includes('finance') ? `Start, then import from ${from.name}` : agent ? `Start, then connect ${AGENTS.find((a) => a.id === agent)?.name}` : 'Start using Kosh'}
       </Button>
     ) : (
       <Button size="lg" className="flex-1" onClick={next}>
@@ -154,6 +154,43 @@ export function Onboarding() {
             </>
           )}
 
+          {step === 'switch' && (
+            <>
+              <h1 className="mt-10 text-[32px] font-bold leading-tight tracking-[-0.03em]">Used another money app?</h1>
+              <p className="mt-2 text-[15px] text-ink-2">Bring your history along. Pick it, and once setup is done Kosh shows you how to get the file out.</p>
+              <button
+                onClick={() => setFromApp(null)}
+                className={cn('press mt-7 flex w-full items-center gap-3 rounded-[20px] p-3 text-left', !fromApp ? 'bg-ink text-bg' : 'bg-surface shadow-card')}
+              >
+                <Glyph icon="🌱" color="#22C55E" size={40} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[16px] font-semibold tracking-tight">No, starting fresh</span>
+                  <span className={cn('block text-[12px]', !fromApp ? 'opacity-70' : 'text-ink-3')}>You can import later from Settings</span>
+                </span>
+                {!fromApp && <Check className="size-5 text-accent" strokeWidth={3} />}
+              </button>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {[...IMPORT_APPS, ...OTHER_SOURCES].map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => setFromApp(fromApp === a.id ? null : a.id)}
+                    className={cn('press flex flex-col items-center gap-1.5 rounded-2xl px-1 py-3 text-center text-[12px] font-semibold leading-tight', fromApp === a.id ? 'bg-ink text-bg' : 'bg-surface text-ink-2 shadow-card')}
+                  >
+                    <AppMark app={a} size={36} />
+                    {a.id === 'other' ? 'Another app' : a.name}
+                  </button>
+                ))}
+              </div>
+              {from?.hasAccounts && <p className="mt-4 rounded-2xl bg-surface px-4 py-3 text-[13px] leading-relaxed text-ink-2">Your accounts come over from {from.name} too, so Kosh won’t ask for them now.</p>}
+              <div className="mt-auto flex gap-2 pt-8">
+                <Button variant="secondary" size="lg" onClick={back}>
+                  Back
+                </Button>
+                {primary(fromApp ? 'Continue' : 'Skip')}
+              </div>
+            </>
+          )}
+
           {step === 'banks' && (
             <>
               <h1 className="mt-10 text-[32px] font-bold leading-tight tracking-[-0.03em]">Where's your money?</h1>
@@ -179,9 +216,6 @@ export function Onboarding() {
                 </Button>
                 {primary('Continue')}
               </div>
-              <button onClick={importFirst} className="press mt-3 self-center rounded-full px-3 py-2 text-[14px] font-semibold text-ink-2">
-                Coming from Dime or another app? <span className="text-accent">Import</span>
-              </button>
             </>
           )}
 

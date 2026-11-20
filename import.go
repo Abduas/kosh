@@ -326,6 +326,12 @@ func (a *api) previewImport(w http.ResponseWriter, r *http.Request, uid int64) {
 		}
 		out.Accounts = append(out.Accounts, pa)
 	}
+	for name := range p.Openings {
+		if _, ok := acctIndex[name]; !ok {
+			addAccount(name)
+			out.Accounts[len(out.Accounts)-1].Count = 0
+		}
+	}
 	for i, row := range p.Rows {
 		switch status[i] {
 		case rowImported:
@@ -541,6 +547,19 @@ func (a *api) commitImport(w http.ResponseWriter, r *http.Request, uid int64) {
 		return &id, nil
 	}
 
+	// Accounts the file gives an opening balance for, in a steady order.
+	var opened []string
+	for name := range p.Openings {
+		opened = append(opened, name)
+	}
+	sort.Strings(opened)
+	for _, name := range opened {
+		if _, err := account(name); err != nil {
+			respondErr(w, err)
+			return
+		}
+	}
+
 	delta := map[int64]int64{} // what the import adds to each account's balance
 	for i, row := range p.Rows {
 		switch status[i] {
@@ -593,6 +612,16 @@ func (a *api) commitImport(w http.ResponseWriter, r *http.Request, uid int64) {
 			return
 		}
 		res.Imported++
+	}
+	// A new account starts where it started in the old app.
+	for _, name := range opened {
+		id := accountIDs[name]
+		if created[id] && p.Openings[name] != 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE accounts SET opening_balance = opening_balance + ? WHERE id = ? AND user_id = ?`, p.Openings[name], id, uid); err != nil {
+				serverError(w, err)
+				return
+			}
+		}
 	}
 	if in.KeepBalances {
 		for id, d := range delta {

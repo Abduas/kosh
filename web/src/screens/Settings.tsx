@@ -390,7 +390,7 @@ export function Settings() {
             {finance && (
               <>
                 <div className="border-t border-line" />
-                <ListRow onClick={() => navigate('/settings/import')} left={<RowIcon className="bg-accent/12 text-accent"><FileUp className="size-[18px]" /></RowIcon>} title="Import" subtitle="From Dime, another app, or a bank statement" chevron />
+                <ListRow onClick={() => navigate('/settings/import')} left={<RowIcon className="bg-accent/12 text-accent"><FileUp className="size-[18px]" /></RowIcon>} title="Import" subtitle="From Dime, Cashew, Money Manager, a bank statement…" chevron />
                 <div className="border-t border-line" />
                 <ListRow onClick={exportCsv} left={<RowIcon className="bg-lend/12 text-lend"><Download className="size-[18px]" /></RowIcon>} title="Export to CSV" subtitle="Every transaction, for Excel or Sheets" />
               </>
