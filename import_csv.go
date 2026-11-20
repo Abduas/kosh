@@ -34,6 +34,8 @@ type importRow struct {
 	Account   string
 	ToAccount string
 	Person    string
+	// The running balance a bank statement prints after the row, if any.
+	Balance *int64
 }
 
 type importProblem struct {
@@ -490,6 +492,18 @@ func parseImportCSV(text string, loc *time.Location) (parsedImport, error) {
 		}
 		row.Note = truncateRunes(strings.Join(notes, " · "), 280)
 		row.Person = truncateRunes(cell(rec, "person"), 60)
+		if out.Format == "a bank statement" {
+			bal := raw(rec, "balance")
+			if bal == "" {
+				bal = raw(rec, "closing balance")
+			}
+			if amt, minus, hint, ok := parseAmount(bal); ok {
+				if minus || hint == "expense" {
+					amt = -amt
+				}
+				row.Balance = &amt
+			}
+		}
 		if row.Kind == "expense" || row.Kind == "income" {
 			row.Category = category
 		}

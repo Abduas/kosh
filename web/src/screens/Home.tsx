@@ -1,11 +1,11 @@
-import { ChevronDown, ChevronRight, Eye, EyeOff, Inbox, ScanLine, Search, Settings as SettingsIcon } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, EyeOff, HandHeart, Inbox, ScanLine, Search, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Amount, BigAmount } from '../components/Money'
 import { IconButton } from '../components/ui'
-import { monthPeriod, ymd } from '../lib/format'
+import { money, monthPeriod, ymd } from '../lib/format'
 import { haptic } from '../lib/look'
-import { useBudgets, useCaptures, useData, useInsights } from '../lib/queries'
+import { useBudgets, useCaptures, useData, useInsights, useInterest } from '../lib/queries'
 import { clearParam, navigate, useBackToClose, useLocation } from '../lib/router'
 import { openScanner, privacy, togglePrivacy } from '../lib/store'
 import { Log } from './Activity'
@@ -48,6 +48,7 @@ export function Home() {
   const totals = useInsights(r.from, r.to).data?.totals
   const overall = useBudgets(monthPeriod(new Date(), monthStart).from).data?.find((b) => b.categoryId === null)
   const toReview = useCaptures().data?.length ?? 0
+  const toGive = useInterest().data?.toGive ?? 0
 
   // Focus right inside the tap, so iPhone opens the keyboard.
   const openSearch = () => {
@@ -134,6 +135,19 @@ export function Home() {
           </section>
 
           <DueSoonRow />
+
+          {toGive > 0 && (
+            <button onClick={() => navigate('/interest')} className="press mb-3 flex w-full items-center gap-3 rounded-2xl bg-surface px-4 py-3 text-left">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-pos/12 text-pos">
+                <HandHeart className="size-[18px]" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-semibold tracking-tight">{money(toGive)} interest to give away</span>
+                <span className="block text-[12px] text-ink-3">Paid by your bank</span>
+              </span>
+              <ChevronRight className="size-4 text-ink-3" />
+            </button>
+          )}
 
           {toReview > 0 && (
             <button

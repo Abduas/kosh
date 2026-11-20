@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Bot, Check, Download, Eraser, FileUp, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
+import { Bot, Check, Download, Eraser, FileSearch, FileUp, HandHeart, KeyRound, LogOut, MessageSquareText, Monitor, Moon, Smartphone, Sun, Tag, Target, UserPlus, Wallet } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Sheet } from '../components/Sheet'
@@ -389,6 +389,10 @@ export function Settings() {
             )}
             {finance && (
               <>
+                <div className="border-t border-line" />
+                <ListRow onClick={() => navigate('/statement')} left={<RowIcon className="bg-accent/12 text-accent"><FileSearch className="size-[18px]" /></RowIcon>} title="Check a bank statement" subtitle="Interest, bank charges, and what Kosh is missing" chevron />
+                <div className="border-t border-line" />
+                <ListRow onClick={() => navigate('/interest')} left={<RowIcon className="bg-pos/12 text-pos"><HandHeart className="size-[18px]" /></RowIcon>} title="Interest" subtitle="What your banks paid, to give away" chevron />
                 <div className="border-t border-line" />
                 <ListRow onClick={() => navigate('/settings/import')} left={<RowIcon className="bg-accent/12 text-accent"><FileUp className="size-[18px]" /></RowIcon>} title="Import" subtitle="From Dime, Cashew, Money Manager, a bank statement…" chevron />
                 <div className="border-t border-line" />

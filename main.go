@@ -170,6 +170,11 @@ func newServer(db *sql.DB) http.Handler {
 	mux.HandleFunc("GET /api/export.csv", a.authed(a.exportCSV))
 	mux.HandleFunc("POST /api/import/preview", a.authed(a.previewImport))
 	mux.HandleFunc("POST /api/import", a.authed(a.commitImport))
+	mux.HandleFunc("POST /api/statements/check", a.authed(a.checkStatement))
+	mux.HandleFunc("POST /api/statements/add", a.authed(a.addStatementRows))
+	mux.HandleFunc("POST /api/statements/mark-interest", a.authed(a.markInterest))
+	mux.HandleFunc("GET /api/interest", a.authed(a.getInterest))
+	mux.HandleFunc("POST /api/interest/give", a.authed(a.giveInterest))
 
 	// Auto-capture: the phone posts bank messages with its link's token, no session.
 	mux.HandleFunc("POST /api/capture/{token}", a.receiveCapture)

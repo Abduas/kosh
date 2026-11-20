@@ -360,6 +360,13 @@ var migrations = []string{
 		resource TEXT NOT NULL DEFAULT '',
 		expires_at TEXT NOT NULL
 	);`,
+
+	// What a category is for, when Kosh needs to know: 'interest' (interest
+	// the bank paid you), 'interest-given' (interest given away to charity),
+	// 'charges' (bank charges). Everyone's starter "Interest" category is
+	// interest.
+	`ALTER TABLE categories ADD COLUMN role TEXT NOT NULL DEFAULT '';
+	UPDATE categories SET role = 'interest' WHERE kind = 'income' AND name = 'Interest';`,
 }
 
 func migrate(db *sql.DB) error {

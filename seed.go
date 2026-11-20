@@ -39,8 +39,12 @@ var defaultIncomeCategories = []seedCategory{
 func seedUser(tx *sql.Tx, uid int64) error {
 	insert := func(kind string, list []seedCategory) error {
 		for i, c := range list {
-			if _, err := tx.Exec(`INSERT INTO categories (user_id, kind, name, icon, color, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
-				uid, kind, c.name, c.icon, c.color, i); err != nil {
+			role := ""
+			if kind == "income" && c.name == "Interest" {
+				role = "interest"
+			}
+			if _, err := tx.Exec(`INSERT INTO categories (user_id, kind, name, icon, color, sort_order, role) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				uid, kind, c.name, c.icon, c.color, i, role); err != nil {
 				return err
 			}
 		}

@@ -14,6 +14,7 @@ import {
   type Category,
   type Garage,
   type Insights,
+  type InterestSummary,
   type Person,
   type Prefs,
   type Transaction,
@@ -152,9 +153,17 @@ export function useBudgets(from: string) {
   })
 }
 
+/** Interest earned and given away, for the Interest screen and the Home card. */
+export function useInterest() {
+  return useQuery({
+    queryKey: ['interest'],
+    queryFn: () => api<InterestSummary>('GET', '/api/interest'),
+  })
+}
+
 /** Money changed: refresh balances, lists and charts. */
 export function invalidateMoney() {
-  for (const key of ['bootstrap', 'tx', 'insights', 'balance', 'budgets', 'captures', 'garage']) {
+  for (const key of ['bootstrap', 'tx', 'insights', 'balance', 'budgets', 'captures', 'garage', 'interest']) {
     queryClient.invalidateQueries({ queryKey: [key] })
   }
 }

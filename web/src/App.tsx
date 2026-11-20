@@ -30,6 +30,8 @@ import { Settings } from './screens/Settings'
 import { CaptureSettings } from './screens/Capture'
 import { Review } from './screens/Review'
 import { ImportScreen } from './screens/Import'
+import { InterestScreen } from './screens/Interest'
+import { StatementScreen } from './screens/Statement'
 import { Due, Garage, Logs, Papers, VehicleDetail } from './screens/Garage'
 import { AgentsScreen } from './screens/Agents'
 
@@ -277,6 +279,8 @@ function Shell() {
   else if (path === '/members') screen = <Members />
   else if (path === '/settings/capture') screen = <CaptureSettings />
   else if (path === '/settings/import') screen = <ImportScreen />
+  else if (path === '/statement') screen = <StatementScreen />
+  else if (path === '/interest') screen = <InterestScreen />
   else if (path === '/settings/agents') screen = <AgentsScreen />
   else if (path === '/review') screen = <Review />
   else if (path === '/garage') screen = <Garage />

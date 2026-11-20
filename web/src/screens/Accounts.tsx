@@ -1,5 +1,5 @@
 import { motion } from 'motion/react'
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Pencil, Plus, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ChevronRight, FileSearch, Pencil, Plus, Wallet } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AccountSheet } from '../components/Forms'
 import { Amount, BigAmount } from '../components/Money'
@@ -168,6 +168,19 @@ export function AccountDetail({ id }: { id: number }) {
           Move
         </Button>
       </div>
+
+      {a.kind !== 'cash' && (
+        <button onClick={() => navigate(`/statement?account=${id}`)} className="press mt-2 flex w-full items-center gap-3 rounded-2xl bg-surface px-4 py-3 text-left">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent/12 text-accent">
+            <FileSearch className="size-[18px]" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold tracking-tight">Check a statement</span>
+            <span className="block text-[12px] text-ink-3">Interest, bank charges, missing entries</span>
+          </span>
+          <ChevronRight className="size-4 text-ink-3" />
+        </button>
+      )}
 
       <h2 className="mb-2.5 mt-8 px-1 text-[13px] font-semibold uppercase tracking-[0.06em] text-ink-3">History</h2>
       {tx.isLoading ? (

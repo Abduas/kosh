@@ -329,6 +329,57 @@ export type ImportResult = {
   createdPeople: number
 }
 
+/** What a bank statement row is, when Kosh recognises it. */
+export type StatementLabel = '' | 'interest' | 'interest-paid' | 'tds' | 'charges'
+
+export type StatementRow = {
+  index: number
+  at: string
+  kind: 'income' | 'expense'
+  amount: number
+  note: string
+  balance: number | null
+  label: StatementLabel
+  /** The Kosh transaction it matched. */
+  match: { id: number; at: string; kind: string; categoryId: number | null; note: string } | null
+}
+
+/** A statement set against Kosh (POST /api/statements/check). Nothing is changed by it. */
+export type StatementCheck = {
+  accountId: number
+  from: string
+  to: string
+  count: number
+  moneyIn: number
+  moneyOut: number
+  opening: number | null
+  closing: number | null
+  /** Rows whose balance doesn't follow from the one before. */
+  breaks: number[]
+  /** Kosh's balance at the end of the statement's last day. */
+  koshClosing: number
+  interest: number
+  interestPaid: number
+  tds: number
+  charges: number
+  rows: StatementRow[]
+  matched: number
+  missing: number
+  koshOnly: { id: number; at: string; kind: string; in: boolean; amount: number; note: string }[]
+  interestCategoryId: number | null
+  chargesCategoryId: number | null
+  problems: { line: number; reason: string }[]
+}
+
+/** Interest earned (income in the Interest category) and given away. */
+export type InterestSummary = {
+  earned: number
+  given: number
+  toGive: number
+  years: { year: string; earned: number; given: number }[]
+  entries: { id: number; at: string; amount: number; note: string; accountId: number; given: boolean }[]
+}
+
 /** Another Kosh account that the Google account just connected signs in to. */
 export type MergeOffer = { name: string; username: string; googleEmail: string; transactions: number; accounts: number; people: number }
 
