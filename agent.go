@@ -24,8 +24,9 @@ import (
 // linked (vehicle costs, Money) exactly like one typed in the app. Amounts
 // go in and out in rupees, and names work wherever an id does.
 //
-// What an agent can't do: move money (Kosh only records), change settings,
-// or delete anything it didn't add itself.
+// With permission to change things, an agent can do what the person can do
+// with their records (agent_manage.go). What it can't do: move money (Kosh
+// only records), or touch their login, members or agent connections.
 
 type agentCaller struct {
 	uid    int64
@@ -38,6 +39,10 @@ type agentTool struct {
 	name        string
 	description string
 	write       bool
+	// destructive: it deletes or overwrites. mayWrite: it reads, or changes
+	// things on a connection allowed to (kosh_api).
+	destructive bool
+	mayWrite    bool
 	params      []toolParam
 	run         func(ctx context.Context, a *api, c agentCaller, args map[string]any) (any, error)
 }
@@ -467,8 +472,9 @@ var agentTools = []agentTool{
 	},
 	{
 		name:        "delete_transaction",
-		description: "Delete a transaction this agent added (for example, one added by mistake). Others can't be deleted by an agent.",
+		description: "Delete any transaction, for good: a mistake, a duplicate, or one they ask to remove. Deleting a fuel or service entry also removes it from the vehicle.",
 		write:       true,
+		destructive: true,
 		params:      []toolParam{{name: "id", kind: "number", about: "The transaction's id", required: true}},
 		run:         toolDeleteTransaction,
 	},
@@ -817,7 +823,7 @@ func toolVehicleStatus(ctx context.Context, a *api, c agentCaller, args map[stri
 		return nil, err
 	}
 	paperView := func(d vehicleDoc) map[string]any {
-		m := map[string]any{"type": d.Type, "name": d.label(), "number": d.Number, "issuer": d.Issuer, "issuedOn": d.IssuedOn}
+		m := map[string]any{"id": d.ID, "type": d.Type, "name": d.label(), "number": d.Number, "issuer": d.Issuer, "issuedOn": d.IssuedOn}
 		if d.ExpiresOn == nil {
 			m["expires"] = "never"
 		} else {
@@ -843,21 +849,21 @@ func toolVehicleStatus(ctx context.Context, a *api, c agentCaller, args map[stri
 		services := []any{}
 		for _, r := range rules {
 			if r.VehicleID == v.ID {
-				services = append(services, map[string]any{"what": r.Title, "everyKm": r.EveryKm, "everyMonths": r.EveryMonths, "lastDone": r.LastOn,
+				services = append(services, map[string]any{"id": r.ID, "what": r.Title, "everyKm": r.EveryKm, "everyMonths": r.EveryMonths, "lastDone": r.LastOn,
 					"dueAtKm": r.NextKm, "kmLeft": r.KmLeft, "dueBy": r.NextOn, "likelyOn": r.GuessOn, "state": r.State})
 			}
 		}
 		recent := []any{}
 		for _, x := range logs {
 			if x.VehicleID == v.ID && len(recent) < 10 {
-				m := map[string]any{"date": x.OccurredOn, "type": x.Kind, "title": x.Title, "amount": rupees(x.Amount), "odometer": x.Odometer}
+				m := map[string]any{"id": x.ID, "date": x.OccurredOn, "type": x.Kind, "title": x.Title, "amount": rupees(x.Amount), "odometer": x.Odometer}
 				if x.Litres != nil {
 					m["litres"] = float64(*x.Litres) / 1000
 				}
 				recent = append(recent, m)
 			}
 		}
-		out = append(out, map[string]any{"name": v.Name, "kind": v.Kind, "registration": v.RegNumber, "make": v.Make, "model": v.Model, "fuel": v.Fuel,
+		out = append(out, map[string]any{"id": v.ID, "name": v.Name, "kind": v.Kind, "registration": v.RegNumber, "make": v.Make, "model": v.Model, "fuel": v.Fuel,
 			"odometerKm": v.Odometer, "papers": papers, "services": services, "recentLogs": recent})
 	}
 	licence := []any{}
@@ -967,9 +973,6 @@ func toolDeleteTransaction(ctx context.Context, a *api, c agentCaller, args map[
 	err := a.db.QueryRowContext(ctx, `SELECT ref FROM transactions WHERE id = ? AND user_id = ?`, int64(id), c.uid).Scan(&ref)
 	if err != nil {
 		return nil, errTool("no such transaction")
-	}
-	if ref != fmt.Sprintf("agent:%d", c.connID) {
-		return nil, errTool("an agent can only delete what it added itself; ask the person to delete this one in Kosh")
 	}
 	if err := a.call(ctx, a.deleteTransaction, "DELETE", "/api/transactions/x", c.uid, nil, int64(id), nil); err != nil {
 		return nil, err

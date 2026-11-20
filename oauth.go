@@ -495,12 +495,12 @@ display:grid;place-items:center;text-decoration:none}.allow,a.btn{background:var
 <p><b>{{.Client}}</b> wants to use {{if .User}}{{.User}}'s {{end}}Kosh at {{.Host}}.</p>
 <ul>
 <li><span>📖</span><div><b>See your money and vehicles</b><small>Balances, transactions, spending, people, papers and their expiry dates</small></div></li>
-<li><span>✍️</span><div><b>Add entries, if you allow it</b><small>Expenses, income, loans, fuel, services, renewed papers. It can delete only what it added.</small></div></li>
+<li><span>✍️</span><div><b>Change anything, if you allow it</b><small>Add, edit and delete entries, accounts, people, vehicles and papers, as you can in the app.</small></div></li>
 <li><span>🔒</span><div><b>Never move money</b><small>Kosh only keeps records. It can't pay anyone or change your settings.</small></div></li>
 </ul>
 <form method="post" action="/oauth/authorize">
 {{range $k, $v := .Fields}}<input type="hidden" name="{{$k}}" value="{{index $v 0}}">{{end}}
-<label class="opt"><input type="radio" name="access" value="write" checked><div><b>See and add</b><small>Best for telling it "I spent ₹200 on lunch"</small></div></label>
+<label class="opt"><input type="radio" name="access" value="write" checked><div><b>See and change</b><small>Best for telling it "I spent ₹200 on lunch" or "add my new bike"</small></div></label>
 <label class="opt"><input type="radio" name="access" value="read"><div><b>See only</b><small>It can answer questions but not add anything</small></div></label>
 <div class="btns"><button class="deny" name="decision" value="deny">Cancel</button><button class="allow" name="decision" value="allow">Allow</button></div>
 </form>

@@ -150,7 +150,7 @@ export function AgentsScreen() {
       )}
 
       <p className="mt-6 px-1 text-[12px] leading-relaxed text-ink-3">
-        Agents can read your records and, if you allow it, add entries. They can’t move money, change settings, or delete anything they didn’t add. Every entry an agent adds is marked in Kosh.
+        Agents can read your records and, if you allow it, change anything in them, just as you can in the app: add, edit and delete entries, accounts, people, vehicles and papers. They can’t move money or touch your login. Every entry an agent adds is marked in Kosh.
       </p>
 
       <ConnectSheet kind={open} onClose={() => setOpen(null)} mcpUrl={q.data?.mcpUrl ?? `${location.origin}/mcp`} />
@@ -205,7 +205,7 @@ function ConnectionCard({ c }: { c: AgentConn }) {
         value={c.scope}
         onChange={(s) => setScope.mutate(s)}
         options={[
-          { value: 'write', label: 'See and add' },
+          { value: 'write', label: 'See and change' },
           { value: 'read', label: 'See only' },
         ]}
       />
@@ -261,7 +261,7 @@ function ConnectorFlow({ info, mcpUrl }: { info: AgentInfo; mcpUrl: string }) {
         </div>
       </Field>
       <p className="rounded-2xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-ink-2">
-        When Kosh asks, choose <b>See and add</b> so you can say “add ₹500 petrol for the Activa”, or <b>See only</b> for questions like “what did I spend on food this month?”.
+        When Kosh asks, choose <b>See and change</b> so you can say “add ₹500 petrol for the Activa”, or <b>See only</b> for questions like “what did I spend on food this month?”.
         Menus in these apps change now and then; look for <b>Connectors</b> if a step has moved.
       </p>
       <p className="px-1 text-[12px] text-ink-3">Once connected, it appears under Connected here.</p>
@@ -301,7 +301,7 @@ function LinkFlow({ info, onDone }: { info: AgentInfo; onDone: () => void }) {
           <div className="space-y-2">
             {(
               [
-                ['write', 'See and add', 'Record what you tell it: expenses, income, loans, fuel, renewed papers'],
+                ['write', 'See and change', 'Add, edit and delete anything: entries, accounts, people, vehicles, papers'],
                 ['read', 'See only', 'Answer questions about your money and vehicles, add nothing'],
               ] as const
             ).map(([v, t, d]) => (

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type api struct {
@@ -17,6 +18,10 @@ type api struct {
 	signups  *limiter // new accounts
 	captures *limiter // messages from each capture link
 	merges   *mergeOffers
+
+	// The app's API as agents reach it (kosh_api in agent_manage.go).
+	koshMuxOnce sync.Once
+	koshMuxVal  *http.ServeMux
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

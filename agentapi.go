@@ -91,9 +91,10 @@ func (a *api) agentInstructions(r *http.Request, c agentCaller) string {
 	fmt.Fprintf(&b, "You've been connected to Kosh, where %s keeps their own records: bank accounts and cash, spending, money lent and borrowed, "+
 		"and their vehicles (insurance, PUC, road tax and other papers with expiry dates, fuel, service). Amounts are Indian rupees.\n\n", who)
 	if c.scope == "write" {
-		b.WriteString("You may **read and add** records. You can delete only entries you added.\n\n")
+		b.WriteString("You may **read and change** everything in their records: add, edit and delete entries, accounts, categories, people, vehicles, papers, services and budgets. " +
+			"Deleting is for good, so delete only what they ask you to, or a mistake you made.\n\n")
 	} else {
-		b.WriteString("You may **only read**. (They can allow adding entries in Kosh → Settings → AI agents.)\n\n")
+		b.WriteString("You may **only read**. (They can allow changes in Kosh → Settings → AI agents.)\n\n")
 	}
 	b.WriteString("## Rules\n\n" +
 		"- Kosh only records. It never pays anyone or moves money; don't tell them you paid something through Kosh.\n" +
@@ -144,6 +145,10 @@ func (a *api) agentInstructions(r *http.Request, c agentCaller) string {
 		"- \"Filled petrol 500 in the Activa, 4.5 litres, 12450 km\": add_vehicle_log type fuel (with paid_from to also record it in Money).\n" +
 		"- \"Lent Rahul 1000\": add_transaction type lend, person Rahul. \"Rahul paid me back\": type collect.\n" +
 		"- A renewed insurance or PUC (say from an email): add_vehicle_paper with the expiry date, so Kosh reminds them next time.\n" +
+		"- A new bike or car: add_vehicle, then its papers and service schedule (save_service_rule).\n" +
+		"- \"That was 250, not 200\" or \"that was Swiggy, put it under food\": find it with list_transactions, then update_transaction.\n" +
+		"- \"Rahul won't pay me back\": write_off_loan.\n" +
+		"- Anything without its own tool: kosh_api, the app's own API (amounts in paise, things by id).\n" +
 		"- \"How much did I spend on food this month?\": spending_summary, or list_transactions with category.\n")
 	return b.String()
 }

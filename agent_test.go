@@ -112,11 +112,11 @@ func TestAgentKeyAndTools(t *testing.T) {
 		t.Fatalf("paper %d: %v", code, out)
 	}
 
-	// It may delete what it added, nothing else.
+	// It may delete anything: what it added, and what the person added.
 	var mine struct{ ID int64 }
 	me.do("POST", "/api/transactions", map[string]any{"kind": "expense", "amount": 100, "accountId": 2, "occurredAt": "2026-11-10T10:00"}, 201, &mine)
-	if code, _, _ := postJSON(t, hc, base+"/delete_transaction", map[string]any{"id": mine.ID}, nil); code != 400 {
-		t.Fatalf("deleted someone else's: %d", code)
+	if code, out, _ := postJSON(t, hc, base+"/delete_transaction", map[string]any{"id": mine.ID}, nil); code != 200 {
+		t.Fatalf("delete the person's: %d %v", code, out)
 	}
 	if code, out, _ := postJSON(t, hc, base+"/delete_transaction", map[string]any{"id": lunch}, nil); code != 200 {
 		t.Fatalf("delete own: %d %v", code, out)
