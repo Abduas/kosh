@@ -67,23 +67,56 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (v: 
   )
 }
 
-/** A money field in rupees that reports minor units (paise). */
+/**
+ * A money field in rupees that reports minor units (paise). With
+ * allowNegative it has a +/− button, since the iPhone number pad has no minus
+ * key; a typed minus (Android, desktop) flips the sign too.
+ */
 export function MoneyInput({ value, onChange, placeholder, allowNegative }: { value: number; onChange: (minor: number) => void; placeholder?: string; allowNegative?: boolean }) {
-  const [text, setText] = useState(value ? String(value / 100) : '')
+  const [text, setText] = useState(value ? String(Math.abs(value) / 100) : '')
+  const [negative, setNegative] = useState(allowNegative ? value < 0 : false)
+  const report = (raw: string, neg: boolean) => {
+    const minor = parseMoney(raw) ?? 0
+    onChange(neg ? -minor : minor)
+  }
   return (
     <div className="relative">
-      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-ink-3">{currencySymbol()}</span>
+      <span className={cn('pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[15px] font-semibold', negative ? 'text-neg' : 'text-ink-3')}>
+        {negative && '−'}
+        {currencySymbol()}
+      </span>
       <TextInput
         inputMode="decimal"
+        autoComplete="off"
         value={text}
         placeholder={placeholder ?? '0'}
-        className="pl-9 font-semibold tnum"
+        className={cn('font-semibold tnum', negative ? 'pl-11 text-neg' : 'pl-9', allowNegative && 'pr-14')}
         onChange={(e) => {
-          const raw = e.target.value.replace(allowNegative ? /[^0-9.,-]/g : /[^0-9.,]/g, '')
+          let neg = negative
+          if (allowNegative && e.target.value.includes('-')) {
+            neg = !neg
+            setNegative(neg)
+          }
+          const raw = e.target.value.replace(/[^0-9.,]/g, '')
           setText(raw)
-          onChange(parseMoney(raw) ?? 0)
+          report(raw, neg)
         }}
       />
+      {allowNegative && (
+        <button
+          type="button"
+          aria-label={negative ? 'Make positive' : 'Make negative'}
+          // Keep focus (and the keyboard) on the field.
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setNegative(!negative)
+            report(text, !negative)
+          }}
+          className={cn('press absolute right-1.5 top-1/2 grid h-9 w-11 -translate-y-1/2 place-items-center rounded-xl text-[17px] font-bold', negative ? 'bg-neg/15 text-neg' : 'bg-surface-3 text-ink-2')}
+        >
+          ±
+        </button>
+      )}
     </div>
   )
 }
@@ -220,7 +253,7 @@ function AccountForm({ account, onDone }: { account?: Account; onDone: () => voi
         <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'cash' ? 'Cash' : 'e.g. HDFC Salary'} maxLength={40} />
       </Field>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-[1fr_7.5rem] gap-3">
         <Field label={isCard ? 'Amount owed now' : account ? 'Opening balance' : 'Current balance'}>
           <MoneyInput value={opening} onChange={setOpening} allowNegative={!isCard} />
         </Field>
