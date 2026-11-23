@@ -60,7 +60,7 @@ func init() {
 		},
 		agentTool{
 			name:        "update_transaction",
-			description: "Change any entry in Money: amount, type, account, category, person, note or date. Only the fields given change. Find the id with list_transactions.",
+			description: "Change any entry in Money: amount, type, account, category, person, note, date or the vehicle an expense was for. Only the fields given change. Find the id with list_transactions.",
 			write:       true,
 			params: []toolParam{
 				{name: "id", kind: "number", about: "The transaction's id", required: true},
@@ -72,6 +72,10 @@ func init() {
 				{name: "person", kind: "string", about: "For lend/borrow/collect/repay: who. Someone new is added."},
 				{name: "note", kind: "string", about: "What it was for"},
 				{name: "date", kind: "string", about: "YYYY-MM-DD or YYYY-MM-DDTHH:MM in India time"},
+				{name: "vehicle", kind: "string", about: "Expense only: link it to this vehicle (name, registration number or id), or 'none' to unlink it"},
+				{name: "litres", kind: "number", about: "Fuel only: litres filled"},
+				{name: "odometer", kind: "number", about: "Vehicle only: odometer reading in km"},
+				{name: "full_tank", kind: "boolean", about: "Fuel only: filled to full"},
 			},
 			run: toolUpdateTransaction,
 		},
@@ -360,6 +364,36 @@ func toolUpdateTransaction(ctx context.Context, a *api, c agentCaller, args map[
 		}
 	default:
 		return nil, errTool("type must be expense, income, transfer, lend, borrow, collect or repay")
+	}
+	var prev *vehicleLink
+	if len(t.Vehicle) > 0 {
+		prev = &vehicleLink{}
+		if err := json.Unmarshal(t.Vehicle, prev); err != nil {
+			return nil, err
+		}
+	}
+	_, hasLitres := args["litres"]
+	_, hasOdometer := args["odometer"]
+	_, hasFull := args["full_tank"]
+	switch v := argString(args, "vehicle"); {
+	case strings.EqualFold(v, "none"):
+		body["vehicle"] = nil
+	case v != "":
+		if kind != "expense" {
+			return nil, errTool("only an expense can be for a vehicle")
+		}
+		veh, err := l.vehicle(v)
+		if err != nil {
+			return nil, err
+		}
+		cat, _ := body["categoryId"].(*int64)
+		body["vehicle"] = agentVehicleLink(l, args, veh.ID, cat, prev)
+	case hasLitres || hasOdometer || hasFull:
+		if prev == nil || kind != "expense" {
+			return nil, errTool("this entry isn't for a vehicle; pass vehicle to link it")
+		}
+		cat, _ := body["categoryId"].(*int64)
+		body["vehicle"] = agentVehicleLink(l, args, prev.VehicleID, cat, prev)
 	}
 	var out transaction
 	if err := a.call(ctx, a.updateTransaction, "PATCH", "/api/transactions/x", c.uid, body, id, &out); err != nil {

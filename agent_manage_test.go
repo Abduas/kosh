@@ -8,7 +8,7 @@ import (
 )
 
 func TestAgentManage(t *testing.T) {
-	srv := newTestServer(t)
+	srv, db := newTestServerDB(t)
 	me := newClient(t, srv)
 	me.do("POST", "/api/auth/signup", map[string]string{"name": "Me", "username": "meuser", "password": "password123"}, 201, nil)
 	me.do("POST", "/api/accounts", map[string]any{"name": "Canara", "kind": "bank", "color": "#3B82F6", "icon": "🏦"}, 201, nil)
@@ -60,6 +60,33 @@ func TestAgentManage(t *testing.T) {
 		t.Fatalf("write off %v", off)
 	}
 	call("set_budget", map[string]any{"category": "Gym", "amount": 1500}, 200)
+
+	// An imported fuel bill, linked to the bike afterwards, then unlinked.
+	var fuel struct{ ID int64 }
+	me.do("POST", "/api/transactions", map[string]any{"kind": "expense", "amount": 50000, "accountId": 2, "occurredAt": "2026-11-12T09:00"}, 201, &fuel)
+	if _, err := db.Exec(`UPDATE transactions SET source = 'import' WHERE id = ?`, fuel.ID); err != nil {
+		t.Fatal(err)
+	}
+	linked := saved(call("update_transaction", map[string]any{"id": fuel.ID, "category": "Fuel", "vehicle": "Passion Pro", "litres": 4.5, "odometer": 41350}, 200))
+	if linked["vehicle"] != "Passion Pro" {
+		t.Fatalf("linked %v", linked)
+	}
+	var kind string
+	var litres, km int64
+	if err := db.QueryRow(`SELECT kind, litres, odometer FROM vehicle_logs WHERE transaction_id = ?`, fuel.ID).Scan(&kind, &litres, &km); err != nil || kind != "fuel" || litres != 4500 || km != 41350 {
+		t.Fatalf("log %s %d %d %v", kind, litres, km, err)
+	}
+	call("update_transaction", map[string]any{"id": fuel.ID, "odometer": 41400}, 200)
+	if err := db.QueryRow(`SELECT litres, odometer FROM vehicle_logs WHERE transaction_id = ?`, fuel.ID).Scan(&litres, &km); err != nil || litres != 4500 || km != 41400 {
+		t.Fatalf("log after odometer %d %d %v", litres, km, err)
+	}
+	unlinked := saved(call("update_transaction", map[string]any{"id": fuel.ID, "vehicle": "none"}, 200))
+	if unlinked["vehicle"] != nil {
+		t.Fatalf("unlinked %v", unlinked)
+	}
+	call("update_transaction", map[string]any{"id": fuel.ID, "odometer": 41500}, 400)
+	// A client still can't claim a source only Kosh sets.
+	me.do("PATCH", "/api/transactions/"+itoa(fuel.ID), map[string]any{"source": "import"}, 400, nil)
 
 	// The app's own API, in paise and ids.
 	out := call("kosh_api", map[string]any{"method": "GET", "path": "/api/vehicles"}, 200)

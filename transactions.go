@@ -73,6 +73,19 @@ type txInput struct {
 // by an AI agent (agent.go).
 var txSources = map[string]bool{"manual": true, "upi-scan": true, "sms": true, "agent": true}
 
+// storedSources are set only by Kosh itself: "import" (another app's export,
+// import.go) and "statement" (a bank statement, statements.go). An entry
+// keeps its source when it's edited, so these must stay valid too.
+var storedSources = map[string]bool{"import": true, "statement": true}
+
+// checkSource rejects a source the client may not set.
+func (in txInput) checkSource() error {
+	if in.Source != nil && *in.Source != "" && !txSources[*in.Source] {
+		return errValidation("Unknown source")
+	}
+	return nil
+}
+
 // apply merges the input into t. For fields that depend on kind (toAccountId,
 // categoryId, personId) an explicit null in the input clears them, so the
 // frontend always sends all three.
@@ -139,7 +152,7 @@ func (a *api) validateTx(ctx context.Context, uid int64, t *transaction) error {
 	if t.Source == "" {
 		t.Source = "manual"
 	}
-	if !txSources[t.Source] {
+	if !txSources[t.Source] && !storedSources[t.Source] {
 		return errValidation("Unknown source")
 	}
 	if len(t.Payee) > 100 || (t.Payee != "" && !strings.Contains(t.Payee, "@")) {
@@ -208,6 +221,10 @@ func (a *api) getTx(ctx context.Context, uid, id int64) (transaction, error) {
 func (a *api) createTransaction(w http.ResponseWriter, r *http.Request, uid int64) {
 	var in txInput
 	if !readJSON(w, r, &in) {
+		return
+	}
+	if err := in.checkSource(); err != nil {
+		respondErr(w, err)
 		return
 	}
 	var t transaction
@@ -287,6 +304,10 @@ func (a *api) createTransactions(w http.ResponseWriter, r *http.Request, uid int
 	}
 	list := make([]transaction, len(in.Items))
 	for i, item := range in.Items {
+		if err := item.checkSource(); err != nil {
+			respondErr(w, err)
+			return
+		}
 		item.apply(&list[i])
 		if err := a.validateTx(r.Context(), uid, &list[i]); err != nil {
 			respondErr(w, err)
@@ -340,6 +361,10 @@ func (a *api) updateTransaction(w http.ResponseWriter, r *http.Request, uid int6
 	}
 	var in txInput
 	if !readJSON(w, r, &in) {
+		return
+	}
+	if err := in.checkSource(); err != nil {
+		respondErr(w, err)
 		return
 	}
 	t, err := a.getTx(r.Context(), uid, id)

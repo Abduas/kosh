@@ -405,6 +405,42 @@ func (l *lookup) view(t transaction) txView {
 	return v
 }
 
+// agentVehicleLink builds the vehicle part of an expense from a tool's
+// vehicle, litres, odometer and full_tank arguments. prev is the expense's
+// current link, kept where the arguments say nothing new.
+func agentVehicleLink(l *lookup, args map[string]any, vehicleID int64, categoryID *int64, prev *vehicleLink) map[string]any {
+	link := map[string]any{"vehicleId": vehicleID, "kind": "expense"}
+	if prev != nil {
+		link["kind"], link["title"], link["fullTank"] = prev.Kind, prev.Title, prev.FullTank
+		if prev.Odometer != nil {
+			link["odometer"] = *prev.Odometer
+		}
+		if prev.Litres != nil {
+			link["litres"] = *prev.Litres
+		}
+	}
+	if categoryID != nil {
+		for _, x := range l.categories {
+			if x.ID == *categoryID && strings.EqualFold(x.Name, "fuel") {
+				link["kind"] = "fuel"
+			}
+		}
+	}
+	if lt, ok := argNumber(args, "litres"); ok {
+		link["kind"] = "fuel"
+		if lt > 0 {
+			link["litres"] = int64(math.Round(lt * 1000))
+		}
+	}
+	if km, ok := argNumber(args, "odometer"); ok {
+		link["odometer"] = int64(km)
+	}
+	if _, ok := args["full_tank"]; ok || prev == nil {
+		link["fullTank"] = argBool(args, "full_tank")
+	}
+	return link
+}
+
 // ---- The tools ----
 
 var agentTools = []agentTool{
@@ -930,25 +966,8 @@ func toolAddTransaction(ctx context.Context, a *api, c agentCaller, args map[str
 		if err != nil {
 			return nil, err
 		}
-		link := map[string]any{"vehicleId": veh.ID, "kind": "expense"}
-		if cat, _ := body["categoryId"].(*int64); cat != nil {
-			for _, x := range l.categories {
-				if x.ID == *cat && strings.EqualFold(x.Name, "fuel") {
-					link["kind"] = "fuel"
-				}
-			}
-		}
-		if _, ok := argNumber(args, "litres"); ok {
-			link["kind"] = "fuel"
-		}
-		if km, ok := argNumber(args, "odometer"); ok {
-			link["odometer"] = int64(km)
-		}
-		if lt, ok := argNumber(args, "litres"); ok && lt > 0 {
-			link["litres"] = int64(math.Round(lt * 1000))
-		}
-		link["fullTank"] = argBool(args, "full_tank")
-		body["vehicle"] = link
+		cat, _ := body["categoryId"].(*int64)
+		body["vehicle"] = agentVehicleLink(l, args, veh.ID, cat, nil)
 	}
 	var t transaction
 	if err := a.call(ctx, a.createTransaction, "POST", "/api/transactions", c.uid, body, 0, &t); err != nil {
